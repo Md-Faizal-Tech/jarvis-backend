@@ -7,6 +7,8 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 import re
+import threading
+import urllib.request
 
 load_dotenv()
 
@@ -237,5 +239,17 @@ def history():
     conn.close()
     return [{"user": r[0], "jarvis": r[1], "time": r[2]} for r in rows]
 
+def keep_alive():
+    def ping():
+        while True:
+            try:
+                urllib.request.urlopen("https://jarvis-backend-q3ml.onrender.com")
+            except:
+                pass
+            import time
+            time.sleep(840)
+    t = threading.Thread(target=ping, daemon=True)
+    t.start()
 
+keep_alive()
 init_db()
