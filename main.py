@@ -130,7 +130,7 @@ def classify_command(text: str):
                 "reply": "Opening Google now, Sir."}
     if "open whatsapp" in t:
         return {"action": "open_url",
-            "url": "intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end",
+            "url": "https://www.whatsapp.com",
             "reply": "Opening WhatsApp, Sir."}
     if "open instagram" in t:
         return {"action": "open_url", "url": "https://www.instagram.com",
