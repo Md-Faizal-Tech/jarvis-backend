@@ -129,13 +129,13 @@ def classify_command(text: str):
         return {"action": "open_url", "url": "https://google.com",
                 "reply": "Opening Google now, Sir."}
     if "open whatsapp" in t:
-        return {"action": "open_url", "url": "whatsapp://",
-                "reply": "Opening WhatsApp, Sir."}
+        return {"action": "open_url", "url": "https://wa.me",
+            "reply": "Opening WhatsApp, Sir."}
     if "open instagram" in t:
-        return {"action": "open_url", "url": "instagram://",
+        return {"action": "open_url", "url": "https://www.instagram.com",
                 "reply": "Opening Instagram, Sir."}
     if "open spotify" in t:
-        return {"action": "open_url", "url": "spotify://",
+        return {"action": "open_url", "url": "https://open.spotify.com",
                 "reply": "Opening Spotify, Sir."}
     if "open maps" in t or "open google maps" in t:
         return {"action": "open_url", "url": "https://maps.google.com",
