@@ -127,7 +127,8 @@ def classify_command(text: str):
         return {"action": "open_url", "url": "https://youtube.com",
                 "reply": "Opening YouTube now, Sir."}
     if "open whatsapp" in t:
-        return {"action": "open_url", "url": "whatsapp://app",
+        return {"action": "open_url",
+                "url": "whatsapp://app",
                 "reply": "Opening WhatsApp, Sir."}
     if "open instagram" in t:
         return {"action": "open_url", "url": "https://www.instagram.com",
@@ -142,28 +143,33 @@ def classify_command(text: str):
         return {"action": "open_url", "url": "https://maps.google.com",
                 "reply": "Opening Maps, Sir."}
     if "open camera" in t:
-        return {"action": "open_url", "url": "content://media/external/images/media",
+        return {"action": "open_url",
+                "url": "intent:#Intent;action=android.media.action.IMAGE_CAPTURE;end",
                 "reply": "Opening Camera, Sir."}
     if "open facebook" in t:
-        return {"action": "open_url", "url": "https://www.facebook.com",
+        return {"action": "open_url",
+                "url": "fb://",
                 "reply": "Opening Facebook, Sir."}
     if "open twitter" in t or "open x" in t:
         return {"action": "open_url", "url": "https://www.x.com",
                 "reply": "Opening X, Sir."}
     if "open telegram" in t:
-        return {"action": "open_url", "url": "https://t.me",
+        return {"action": "open_url",
+                "url": "org.telegram.messenger://",
                 "reply": "Opening Telegram, Sir."}
     if "open gmail" in t:
-        return {"action": "open_url", "url": "https://mail.google.com",
+        return {"action": "open_url",
+                "url": "googlegmail://",
                 "reply": "Opening Gmail, Sir."}
     if "open chrome" in t:
         return {"action": "open_url", "url": "https://google.com",
                 "reply": "Opening Chrome, Sir."}
     if "open settings" in t:
-        return {"action": "open_url", "url": "app-settings:",
+        return {"action": "open_url",
+                "url": "intent:#Intent;action=android.settings.SETTINGS;end",
                 "reply": "Opening Settings, Sir."}
     if "open calculator" in t:
-        return {"action": "open_url", 
+        return {"action": "open_url",
                 "url": "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_CALCULATOR;end",
                 "reply": "Opening Calculator, Sir."}
     if "open clock" in t or "open alarm" in t:
