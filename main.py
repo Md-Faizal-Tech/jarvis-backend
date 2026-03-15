@@ -236,10 +236,11 @@ def check_personality_trigger(text: str):
     ).fetchall()
     conn.close()
     for trigger, response in rows:
-        if trigger in t or t == trigger:
+        # only match if trigger IS the whole message or starts the message
+        # not if it's buried inside a longer command
+        if t == trigger or t.startswith(trigger + " ") or t.startswith(trigger + ","):
             return response
     return None
-
 
 def detect_emotion(text: str):
     t = text.lower()
