@@ -220,9 +220,9 @@ async def get_news(topic: str = None):
     try:
         api_key = os.getenv("NEWS_API_KEY")
         if topic:
-            url = f"https://newsapi.org/v2/everything?q={topic}&sortBy=publishedAt&pageSize=5&apiKey={api_key}"
+            url = f"https://newsapi.org/v2/everything?q={topic}&sortBy=publishedAt&pageSize=5&apiKey={api_key}&language=en"
         else:
-            url = f"https://newsapi.org/v2/top-headlines?country=in&pageSize=5&apiKey={api_key}"
+            url = f"https://newsapi.org/v2/everything?q=India&sortBy=publishedAt&pageSize=5&apiKey={api_key}&language=en"
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             data = response.json()
@@ -232,11 +232,11 @@ async def get_news(topic: str = None):
         headlines = []
         for i, a in enumerate(articles[:5], 1):
             headlines.append(f"{i}. {a['title']}")
-        intro = f"Top news about {topic}" if topic else "Top headlines in India"
+        intro = f"Top news about {topic}" if topic else "Top headlines"
         return f"{intro}, Sir:\n" + "\n".join(headlines)
     except Exception as e:
         return f"News service unavailable, Sir. {str(e)}"
-
+        
 def check_personality_trigger(text: str):
     t = text.lower().strip()
     conn = sqlite3.connect(DB_PATH)
