@@ -545,6 +545,81 @@ def classify_command(text: str):
     if "latest news" in t or "today's news" in t or "headlines" in t or "what's happening" in t:
         return {"action": "news", "topic": None, "reply": None}
 
+    # Save contact with phone
+    m = re.search(r"save (?:contact )?(.+?) (?:phone|number|mobile) (.+)", t)
+    if m:
+        name = m.group(1).strip()
+        phone = m.group(2).strip()
+        save_contact(name, phone=phone)
+        return {"action": "none",
+                "reply": f"Phone number saved for {name.capitalize()}, Sir."}
+
+    # Delete contact
+    m = re.search(r"delete (?:contact )?(.+)", t)
+    if m:
+        name = m.group(1).strip()
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
+        conn.commit()
+        conn.close()
+        return {"action": "none",
+                "reply": f"Contact {name.capitalize()} deleted, Sir."}
+
+    # Update contact email
+    m = re.search(r"update (?:contact )?(.+?) email (?:to |as )(.+@.+)", t)
+    if m:
+        name = m.group(1).strip()
+        email = m.group(2).strip()
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
+        conn.commit()
+        conn.close()
+        return {"action": "none",
+                "reply": f"Email updated for {name.capitalize()}, Sir."}
+
+    # Update contact phone
+    m = re.search(r"update (?:contact )?(.+?) (?:phone|number|mobile) (?:to |as )?(.+)", t)
+    if m:
+        name = m.group(1).strip()
+        phone = m.group(2).strip()
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
+        conn.commit()
+        conn.close()
+        return {"action": "none",
+                "reply": f"Phone number updated for {name.capitalize()}, Sir."}
+
+    # List all contacts
+    if "list contacts" in t or "show contacts" in t or "my contacts" in t:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT name, email, phone FROM contacts").fetchall()
+        conn.close()
+        if not rows:
+            return {"action": "none", "reply": "No contacts saved yet, Sir."}
+        contact_list = "\n".join([
+            f"{r[0].capitalize()} — Email: {r[1] or 'none'}, Phone: {r[2] or 'none'}"
+            for r in rows
+        ])
+        return {"action": "none", "reply": f"Your contacts, Sir:\n{contact_list}"}
+# Save phone number
+"save contact Rahul phone 9876543210"
+
+# Save both email and phone — do two commands
+"save contact Rahul as rahul@gmail.com"
+"save contact Rahul phone 9876543210"
+
+# Edit email
+"update contact Rahul email to newrahul@gmail.com"
+
+# Edit phone
+"update contact Rahul phone to 9999999999"
+
+# Delete
+"delete contact Rahul"
+
+# List all
+"list contacts"
+"show my contacts"
     return None
 
 
