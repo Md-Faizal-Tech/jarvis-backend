@@ -247,7 +247,7 @@ def classify_command(text: str):
     if not t:
         return {"action": "none", "reply": get_greeting()}
 
-     # Open apps
+    # Open apps
     if "open youtube" in t:
         return {"action": "open_url", "url": "https://youtube.com",
                 "reply": "Opening YouTube now, Sir."}
@@ -294,7 +294,7 @@ def classify_command(text: str):
     if "open clock" in t or "open alarm" in t:
         return {"action": "open_app", "package": "com.google.android.deskclock",
                 "reply": "Opening Clock, Sir."}
-     if "open files" in t:
+    if "open files" in t:
         return {"action": "open_url",
                 "url": "content://com.android.externalstorage.documents/root/primary",
                 "reply": "Opening Files, Sir."}
