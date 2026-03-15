@@ -247,33 +247,34 @@ def classify_command(text: str):
     if not t:
         return {"action": "none", "reply": get_greeting()}
 
-    # Open apps
+     # Open apps
     if "open youtube" in t:
-        return {"action": "open_app", "package": "com.google.android.youtube",
+        return {"action": "open_url", "url": "https://youtube.com",
                 "reply": "Opening YouTube now, Sir."}
     if "open whatsapp" in t:
         return {"action": "open_app", "package": "com.whatsapp",
                 "reply": "Opening WhatsApp, Sir."}
     if "open instagram" in t:
-        return {"action": "open_app", "package": "com.instagram.android",
+        return {"action": "open_url", "url": "https://www.instagram.com",
                 "reply": "Opening Instagram, Sir."}
     if "open spotify" in t:
-        return {"action": "open_app", "package": "com.spotify.music",
+        return {"action": "open_url", "url": "spotify://home",
                 "reply": "Opening Spotify, Sir."}
     if "open google" in t:
         return {"action": "open_url", "url": "https://google.com",
                 "reply": "Opening Google, Sir."}
     if "open maps" in t or "open google maps" in t:
-        return {"action": "open_app", "package": "com.google.android.apps.maps",
+        return {"action": "open_url", "url": "https://maps.google.com",
                 "reply": "Opening Maps, Sir."}
     if "open camera" in t:
         return {"action": "open_app", "package": "com.nothing.camera",
                 "reply": "Opening Camera, Sir."}
     if "open facebook" in t:
-        return {"action": "open_app", "package": "com.facebook.katana",
+        return {"action": "open_url",
+                "url": "fb://",
                 "reply": "Opening Facebook, Sir."}
     if "open twitter" in t or "open x" in t:
-        return {"action": "open_app", "package": "com.twitter.android",
+        return {"action": "open_url", "url": "https://www.x.com",
                 "reply": "Opening X, Sir."}
     if "open telegram" in t:
         return {"action": "open_app", "package": "org.telegram.messenger",
@@ -282,7 +283,7 @@ def classify_command(text: str):
         return {"action": "open_app", "package": "com.google.android.gm",
                 "reply": "Opening Gmail, Sir."}
     if "open chrome" in t:
-        return {"action": "open_app", "package": "com.android.chrome",
+        return {"action": "open_url", "url": "https://google.com",
                 "reply": "Opening Chrome, Sir."}
     if "open settings" in t:
         return {"action": "open_app", "package": "com.android.settings",
@@ -293,8 +294,9 @@ def classify_command(text: str):
     if "open clock" in t or "open alarm" in t:
         return {"action": "open_app", "package": "com.google.android.deskclock",
                 "reply": "Opening Clock, Sir."}
-    if "open files" in t:
-        return {"action": "open_app", "package": "com.google.android.documentsui",
+     if "open files" in t:
+        return {"action": "open_url",
+                "url": "content://com.android.externalstorage.documents/root/primary",
                 "reply": "Opening Files, Sir."}
     if "open play store" in t:
         return {"action": "open_app", "package": "com.android.vending",
