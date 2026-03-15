@@ -601,25 +601,7 @@ def classify_command(text: str):
             for r in rows
         ])
         return {"action": "none", "reply": f"Your contacts, Sir:\n{contact_list}"}
-# Save phone number
-"save contact Rahul phone 9876543210"
 
-# Save both email and phone — do two commands
-"save contact Rahul as rahul@gmail.com"
-"save contact Rahul phone 9876543210"
-
-# Edit email
-"update contact Rahul email to newrahul@gmail.com"
-
-# Edit phone
-"update contact Rahul phone to 9999999999"
-
-# Delete
-"delete contact Rahul"
-
-# List all
-"list contacts"
-"show my contacts"
     return None
 
 
