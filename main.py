@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import re
 import threading
 import urllib.request
+import httpx
 
 load_dotenv()
 
@@ -194,6 +195,47 @@ def get_preferences():
     conn.close()
     return {k: v for k, v in rows}
 
+async def get_weather(city: str = "Chennai"):
+    try:
+        api_key = os.getenv("OPENWEATHER_API_KEY")
+        url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            data = response.json()
+        if data.get("cod") != 200:
+            return f"I couldn't retrieve weather data for {city}, Sir."
+        temp = data["main"]["temp"]
+        feels = data["main"]["feels_like"]
+        humidity = data["main"]["humidity"]
+        desc = data["weather"][0]["description"]
+        wind = data["wind"]["speed"]
+        return (f"Currently {desc} in {city}, Sir. "
+                f"Temperature is {temp:.0f}°C, feels like {feels:.0f}°C. "
+                f"Humidity at {humidity}% with wind speed of {wind} m/s.")
+    except Exception as e:
+        return f"Weather service unavailable, Sir. {str(e)}"
+
+
+async def get_news(topic: str = None):
+    try:
+        api_key = os.getenv("NEWS_API_KEY")
+        if topic:
+            url = f"https://newsapi.org/v2/everything?q={topic}&sortBy=publishedAt&pageSize=5&apiKey={api_key}"
+        else:
+            url = f"https://newsapi.org/v2/top-headlines?country=in&pageSize=5&apiKey={api_key}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            data = response.json()
+        articles = data.get("articles", [])
+        if not articles:
+            return "No news found, Sir."
+        headlines = []
+        for i, a in enumerate(articles[:5], 1):
+            headlines.append(f"{i}. {a['title']}")
+        intro = f"Top news about {topic}" if topic else "Top headlines in India"
+        return f"{intro}, Sir:\n" + "\n".join(headlines)
+    except Exception as e:
+        return f"News service unavailable, Sir. {str(e)}"
 
 def check_personality_trigger(text: str):
     t = text.lower().strip()
@@ -363,7 +405,21 @@ def classify_command(text: str):
     # Cancel
     if t in ["cancel", "no", "abort", "never mind", "stop"]:
         return {"action": "cancel_pending", "reply": "Understood, Sir. Action cancelled."}
+    # Weather
+    m = re.search(r"weather (?:in |for |at )?(.+)", t)
+    if m:
+        city = m.group(1).strip()
+        return {"action": "weather", "city": city, "reply": None}
+    if "weather" in t or "temperature" in t or "how hot" in t or "how cold" in t:
+        return {"action": "weather", "city": "Chennai", "reply": None}
 
+    # News
+    m = re.search(r"news (?:about |on |for )?(.+)", t)
+    if m:
+        topic = m.group(1).strip()
+        return {"action": "news", "topic": topic, "reply": None}
+    if "latest news" in t or "today's news" in t or "headlines" in t or "what's happening" in t:
+        return {"action": "news", "topic": None, "reply": None}
     return None
 
 
@@ -395,10 +451,24 @@ async def chat(req: ChatRequest):
     # Check local commands
     command = classify_command(user_msg)
     if command:
+        # Handle weather
+        if command["action"] == "weather":
+            city = command.get("city", "Chennai")
+            reply = await get_weather(city)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        # Handle news
+        if command["action"] == "news":
+            topic = command.get("topic", None)
+            reply = await get_news(topic)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
         save_conversation(user_msg, command["reply"])
         return command
 
-    # Detect emotion for tone adjustment
+    # Detect emotion
     emotion = detect_emotion(user_msg)
     emotion_context = ""
     if emotion == "stressed":
@@ -437,7 +507,6 @@ async def chat(req: ChatRequest):
 
     save_conversation(user_msg, reply)
     return {"action": "none", "reply": reply}
-
 
 @app.get("/history")
 def history():
