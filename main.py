@@ -236,11 +236,10 @@ def check_personality_trigger(text: str):
     ).fetchall()
     conn.close()
     for trigger, response in rows:
-        # only match if trigger IS the whole message or starts the message
-        # not if it's buried inside a longer command
         if t == trigger or t.startswith(trigger + " ") or t.startswith(trigger + ","):
             return response
     return None
+
 
 def detect_emotion(text: str):
     t = text.lower()
@@ -448,7 +447,7 @@ def classify_command(text: str):
                 "url": f"https://www.google.com/maps/dir/?api=1&destination={place.replace(' ', '+')}",
                 "reply": f"Navigating to {place}, Sir."}
 
-    # Save contact — must be before send email and whatsapp
+    # Save contact
     m = re.search(r"save (?:contact )?(.+?) (?:as |email |mail )(.+@.+)", t)
     if m:
         name = m.group(1).strip()
@@ -457,12 +456,17 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": f"Contact saved, Sir. {name.capitalize()} is at {email}."}
 
-    # Send email — must be before whatsapp/send
+    # Send email with confirmation
     m = re.search(r"send (?:an )?email to (.+?) (?:saying|about|with subject|that) (.+)", t)
     if m:
         to_name = m.group(1).strip()
         content = m.group(2).strip()
-        return {"action": "send_email", "to_name": to_name, "content": content, "reply": None}
+        return {
+            "action": "email_confirm",
+            "to_name": to_name,
+            "content": content,
+            "reply": f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
+        }
 
     # Read emails
     if any(w in t for w in ["read my emails", "check my emails", "any emails",
@@ -470,8 +474,8 @@ def classify_command(text: str):
         return {"action": "read_emails", "reply": None}
 
     # WhatsApp message
-    m = re.search(r"(?:whatsapp|message|send|tell|text)\s+(.+?)\s+(?:to say|saying|that|and say|)\s+(.+)", t)
-    if m and any(w in t for w in ["whatsapp", "message", "tell", "text"]):
+    m = re.search(r"(?:whatsapp|message|tell|text)\s+(.+?)\s+(?:to say|saying|that|and say|)\s+(.+)", t)
+    if m:
         name = m.group(1).strip()
         msg = m.group(2).strip()
         return {
@@ -515,12 +519,14 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": "Noted and remembered, Sir. I shall keep that in mind."}
 
-    # Confirm
-    if t in ["confirm", "yes", "send it", "yes send it", "do it"]:
+    # Confirm words
+    if t in ["confirm", "yes", "send it", "yes send it", "do it",
+             "proceed", "go ahead", "sure", "ok", "okay", "yes please"]:
         return {"action": "confirm_pending", "reply": "Right away, Sir."}
 
-    # Cancel
-    if t in ["cancel", "no", "abort", "never mind", "stop"]:
+    # Cancel words
+    if t in ["cancel", "no", "abort", "never mind", "stop", "don't send",
+             "nope", "negative"]:
         return {"action": "cancel_pending", "reply": "Understood, Sir. Action cancelled."}
 
     # Weather
@@ -546,6 +552,12 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class SendEmailRequest(BaseModel):
+    to_name: str
+    to_email: str
+    content: str
+
+
 @app.get("/")
 def root():
     return {"status": "JARVIS online"}
@@ -555,6 +567,12 @@ def root():
 def greeting():
     g = get_greeting()
     return {"reply": g}
+
+
+@app.post("/send_email")
+async def send_email_endpoint(req: SendEmailRequest):
+    reply = await send_email_msg(req.to_name, req.to_email, "Message from JARVIS", req.content)
+    return {"reply": reply}
 
 
 @app.post("/chat")
@@ -585,7 +603,7 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
-        if command["action"] == "send_email":
+        if command["action"] == "email_confirm":
             to_name = command.get("to_name", "")
             content = command.get("content", "")
             contact = get_contact(to_name)
@@ -594,9 +612,15 @@ async def chat(req: ChatRequest):
                 save_conversation(user_msg, reply)
                 return {"action": "none", "reply": reply}
             to_email = contact[1]
-            reply = await send_email_msg(to_name, to_email, "Message from JARVIS", content)
+            reply = command["reply"]
             save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
+            return {
+                "action": "email_pending",
+                "to_name": to_name,
+                "to_email": to_email,
+                "content": content,
+                "reply": reply
+            }
 
         save_conversation(user_msg, command["reply"])
         return command
