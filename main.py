@@ -10,6 +10,12 @@ import re
 import threading
 import urllib.request
 import httpx
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+import base64
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 load_dotenv()
 
@@ -22,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -107,7 +113,14 @@ def init_db():
             value TEXT
         )
     """)
-    # Default personality config
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            email TEXT,
+            phone TEXT
+        )
+    """)
     defaults = [
         ("name", "JARVIS"),
         ("alternate_name", "Friday"),
@@ -122,12 +135,10 @@ def init_db():
             "INSERT OR IGNORE INTO assistant_personality (key, value) VALUES (?, ?)",
             (key, value)
         )
-    # Default personality trigger responses
     triggers = [
         ("you there", "At your service, Sir."),
         ("you up", "Always operational, Sir."),
         ("you awake", "Never truly sleep, Sir. Always watching."),
-        ("good morning", None),  # handled dynamically
         ("good night", "Good night, Sir. Rest well. I'll keep watch."),
         ("how are you", "Running at full capacity, Sir. Thank you for asking."),
         ("thank you", "Always a pleasure, Sir."),
@@ -135,22 +146,20 @@ def init_db():
         ("you're the best", "I do try to maintain high standards, Sir."),
         ("i love you", "The feeling is entirely mutual, Sir. In a strictly professional sense, of course."),
         ("who are you", "I am JARVIS — Just A Rather Very Intelligent System. At your service, Sir."),
-        ("what can you do", "I can open apps, search the web, answer questions, remember your preferences, set reminders, and have a proper conversation, Sir. Shall I demonstrate?"),
+        ("what can you do", "I can open apps, search the web, answer questions, remember your preferences, read emails, check weather, and have a proper conversation, Sir. Shall I demonstrate?"),
         ("hello", "Hello, Sir. How may I assist you today?"),
         ("hi", "Good to hear from you, Sir. What do you need?"),
         ("hey", "Yes Sir, I am here."),
         ("wake up", "Already awake, Sir. What do you need?"),
-        ("stop", "Understood, Sir. Standing by."),
         ("nevermind", "Of course, Sir. Whenever you are ready."),
         ("shut up", "My apologies, Sir. I shall be silent."),
         ("be quiet", "Understood, Sir. Going quiet."),
     ]
     for trigger, response in triggers:
-        if response:
-            conn.execute(
-                "INSERT OR IGNORE INTO personality_responses (trigger, response) VALUES (?, ?)",
-                (trigger, response)
-            )
+        conn.execute(
+            "INSERT OR IGNORE INTO personality_responses (trigger, response) VALUES (?, ?)",
+            (trigger, response)
+        )
     conn.commit()
     conn.close()
 
@@ -195,12 +204,79 @@ def get_preferences():
     conn.close()
     return {k: v for k, v in rows}
 
+
+def save_contact(name: str, email: str = None, phone: str = None):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT OR REPLACE INTO contacts (name, email, phone) VALUES (?, ?, ?)",
+        (name.lower(), email, phone)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_contact(name: str):
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT name, email, phone FROM contacts WHERE name=?",
+        (name.lower(),)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def check_personality_trigger(text: str):
+    t = text.lower().strip()
+    for wake in ["hey jarvis", "jarvis", "hey friday", "friday"]:
+        if t.startswith(wake):
+            t = t[len(wake):].strip()
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT trigger, response FROM personality_responses"
+    ).fetchall()
+    conn.close()
+    for trigger, response in rows:
+        if trigger in t or t == trigger:
+            return response
+    return None
+
+
+def detect_emotion(text: str):
+    t = text.lower()
+    stressed = ["stressed", "stress", "tired", "exhausted", "overwhelmed",
+                "frustrated", "anxious", "worried", "panic", "help me",
+                "i cant", "too much", "so stress"]
+    happy = ["finished", "completed", "done", "achieved", "passed", "got it",
+             "finally", "success", "won", "celebrated", "i finished",
+             "finish my project", "completed my"]
+    joking = ["haha", "lol", "funny", "joke", "kidding", "jk", "lmao"]
+    if any(w in t for w in stressed):
+        return "stressed"
+    if any(w in t for w in happy):
+        return "happy"
+    if any(w in t for w in joking):
+        return "joking"
+    return "neutral"
+
+
+def get_greeting():
+    hour = datetime.now(IST).hour
+    if 5 <= hour < 12:
+        return "Good morning, Sir. Ready to take on the day?"
+    elif 12 <= hour < 17:
+        return "Good afternoon, Sir. How may I assist you?"
+    elif 17 <= hour < 21:
+        return "Good evening, Sir. What can I do for you?"
+    else:
+        return "Working late, Sir? I am here whenever you need me."
+
+
 async def get_weather(city: str = "Chennai"):
     try:
         api_key = os.getenv("OPENWEATHER_API_KEY")
         url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(url)
             data = response.json()
         if data.get("cod") != 200:
             return f"I couldn't retrieve weather data for {city}, Sir."
@@ -223,8 +299,8 @@ async def get_news(topic: str = None):
             url = f"https://newsapi.org/v2/everything?q={topic}&sortBy=publishedAt&pageSize=5&apiKey={api_key}&language=en"
         else:
             url = f"https://newsapi.org/v2/everything?q=India&sortBy=publishedAt&pageSize=5&apiKey={api_key}&language=en"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(url)
             data = response.json()
         articles = data.get("articles", [])
         if not articles:
@@ -236,47 +312,68 @@ async def get_news(topic: str = None):
         return f"{intro}, Sir:\n" + "\n".join(headlines)
     except Exception as e:
         return f"News service unavailable, Sir. {str(e)}"
-        
-def check_personality_trigger(text: str):
-    t = text.lower().strip()
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT trigger, response FROM personality_responses"
-    ).fetchall()
-    conn.close()
-    for trigger, response in rows:
-        if trigger in t or t == trigger:
-            return response
-    return None
 
 
-def detect_emotion(text: str):
-    t = text.lower()
-    stressed = ["stressed", "tired", "exhausted", "overwhelmed", "frustrated",
-                "anxious", "worried", "panic", "help me", "i cant", "too much"]
-    happy = ["finished", "completed", "done", "achieved", "passed", "got it",
-             "finally", "success", "won", "celebrated"]
-    joking = ["haha", "lol", "funny", "joke", "kidding", "jk", "lmao"]
-
-    if any(w in t for w in stressed):
-        return "stressed"
-    if any(w in t for w in happy):
-        return "happy"
-    if any(w in t for w in joking):
-        return "joking"
-    return "neutral"
+def get_gmail_service():
+    creds = Credentials(
+        token=None,
+        refresh_token=os.getenv("GMAIL_REFRESH_TOKEN"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=os.getenv("GMAIL_CLIENT_ID"),
+        client_secret=os.getenv("GMAIL_CLIENT_SECRET"),
+        scopes=["https://mail.google.com/"]
+    )
+    creds.refresh(Request())
+    return build("gmail", "v1", credentials=creds)
 
 
-def get_greeting():
-    hour = datetime.now(IST).hour
-    if 5 <= hour < 12:
-        return "Good morning, Sir. Ready to take on the day?"
-    elif 12 <= hour < 17:
-        return "Good afternoon, Sir. How may I assist you?"
-    elif 17 <= hour < 21:
-        return "Good evening, Sir. What can I do for you?"
-    else:
-        return "Working late, Sir? I am here whenever you need me."
+async def read_emails(max_results=5):
+    try:
+        service = get_gmail_service()
+        results = service.users().messages().list(
+            userId="me",
+            labelIds=["INBOX", "UNREAD"],
+            maxResults=max_results
+        ).execute()
+        messages = results.get("messages", [])
+        if not messages:
+            return "No unread emails, Sir."
+        summaries = []
+        for msg in messages:
+            detail = service.users().messages().get(
+                userId="me", id=msg["id"], format="metadata",
+                metadataHeaders=["From", "Subject"]
+            ).execute()
+            headers = detail["payload"]["headers"]
+            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No subject")
+            sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+            sender_name = sender.split("<")[0].strip().strip('"')
+            summaries.append(f"From {sender_name}: {subject}")
+        reply = f"You have {len(messages)} unread emails, Sir:\n"
+        reply += "\n".join([f"{i+1}. {s}" for i, s in enumerate(summaries)])
+        return reply
+    except Exception as e:
+        print(f"GMAIL READ ERROR: {str(e)}")
+        return f"Could not read emails, Sir. {str(e)}"
+
+
+async def send_email_msg(to_name: str, to_email: str, subject: str, body: str):
+    try:
+        service = get_gmail_service()
+        sender = os.getenv("GMAIL_USER")
+        message = MIMEMultipart()
+        message["to"] = to_email
+        message["from"] = sender
+        message["subject"] = subject
+        message.attach(MIMEText(body, "plain"))
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        service.users().messages().send(
+            userId="me", body={"raw": raw}
+        ).execute()
+        return f"Email sent to {to_name}, Sir."
+    except Exception as e:
+        print(f"GMAIL SEND ERROR: {str(e)}")
+        return f"Could not send email, Sir. {str(e)}"
 
 
 def classify_command(text: str):
@@ -312,8 +409,7 @@ def classify_command(text: str):
         return {"action": "open_app", "package": "com.nothing.camera",
                 "reply": "Opening Camera, Sir."}
     if "open facebook" in t:
-        return {"action": "open_url",
-                "url": "fb://",
+        return {"action": "open_url", "url": "https://www.facebook.com",
                 "reply": "Opening Facebook, Sir."}
     if "open twitter" in t or "open x" in t:
         return {"action": "open_url", "url": "https://www.x.com",
@@ -337,8 +433,7 @@ def classify_command(text: str):
         return {"action": "open_app", "package": "com.google.android.deskclock",
                 "reply": "Opening Clock, Sir."}
     if "open files" in t:
-        return {"action": "open_url",
-                "url": "content://com.android.externalstorage.documents/root/primary",
+        return {"action": "open_app", "package": "com.google.android.documentsui",
                 "reply": "Opening Files, Sir."}
     if "open play store" in t:
         return {"action": "open_app", "package": "com.android.vending",
@@ -352,9 +447,30 @@ def classify_command(text: str):
                 "url": f"https://www.google.com/maps/dir/?api=1&destination={place.replace(' ', '+')}",
                 "reply": f"Navigating to {place}, Sir."}
 
+    # Save contact — must be before send email and whatsapp
+    m = re.search(r"save (?:contact )?(.+?) (?:as |email |mail )(.+@.+)", t)
+    if m:
+        name = m.group(1).strip()
+        email = m.group(2).strip()
+        save_contact(name, email=email)
+        return {"action": "none",
+                "reply": f"Contact saved, Sir. {name.capitalize()} is at {email}."}
+
+    # Send email — must be before whatsapp/send
+    m = re.search(r"send (?:an )?email to (.+?) (?:saying|about|with subject|that) (.+)", t)
+    if m:
+        to_name = m.group(1).strip()
+        content = m.group(2).strip()
+        return {"action": "send_email", "to_name": to_name, "content": content, "reply": None}
+
+    # Read emails
+    if any(w in t for w in ["read my emails", "check my emails", "any emails",
+                              "unread emails", "check emails", "my inbox"]):
+        return {"action": "read_emails", "reply": None}
+
     # WhatsApp message
     m = re.search(r"(?:whatsapp|message|send|tell|text)\s+(.+?)\s+(?:to say|saying|that|and say|)\s+(.+)", t)
-    if m and any(w in t for w in ["whatsapp", "message", "send", "tell", "text"]):
+    if m and any(w in t for w in ["whatsapp", "message", "tell", "text"]):
         name = m.group(1).strip()
         msg = m.group(2).strip()
         return {
@@ -396,7 +512,7 @@ def classify_command(text: str):
         fact = m.group(1).strip()
         save_preference(f"fact_{datetime.now().timestamp()}", fact)
         return {"action": "none",
-                "reply": f"Noted and remembered, Sir. I shall keep that in mind."}
+                "reply": "Noted and remembered, Sir. I shall keep that in mind."}
 
     # Confirm
     if t in ["confirm", "yes", "send it", "yes send it", "do it"]:
@@ -405,6 +521,7 @@ def classify_command(text: str):
     # Cancel
     if t in ["cancel", "no", "abort", "never mind", "stop"]:
         return {"action": "cancel_pending", "reply": "Understood, Sir. Action cancelled."}
+
     # Weather
     m = re.search(r"weather (?:in |for |at )?(.+)", t)
     if m:
@@ -420,6 +537,7 @@ def classify_command(text: str):
         return {"action": "news", "topic": topic, "reply": None}
     if "latest news" in t or "today's news" in t or "headlines" in t or "what's happening" in t:
         return {"action": "news", "topic": None, "reply": None}
+
     return None
 
 
@@ -442,33 +560,46 @@ def greeting():
 async def chat(req: ChatRequest):
     user_msg = req.message
 
-    # Check personality triggers first
     personality_reply = check_personality_trigger(user_msg)
     if personality_reply:
         save_conversation(user_msg, personality_reply)
         return {"action": "none", "reply": personality_reply}
 
-    # Check local commands
     command = classify_command(user_msg)
     if command:
-        # Handle weather
         if command["action"] == "weather":
             city = command.get("city", "Chennai")
             reply = await get_weather(city)
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
-        # Handle news
         if command["action"] == "news":
             topic = command.get("topic", None)
             reply = await get_news(topic)
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
+        if command["action"] == "read_emails":
+            reply = await read_emails()
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        if command["action"] == "send_email":
+            to_name = command.get("to_name", "")
+            content = command.get("content", "")
+            contact = get_contact(to_name)
+            if not contact or not contact[1]:
+                reply = f"I don't have an email for {to_name}, Sir. Please say 'save contact {to_name} as their@email.com' first."
+                save_conversation(user_msg, reply)
+                return {"action": "none", "reply": reply}
+            to_email = contact[1]
+            reply = await send_email_msg(to_name, to_email, "Message from JARVIS", content)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
         save_conversation(user_msg, command["reply"])
         return command
 
-    # Detect emotion
     emotion = detect_emotion(user_msg)
     emotion_context = ""
     if emotion == "stressed":
@@ -478,7 +609,6 @@ async def chat(req: ChatRequest):
     elif emotion == "joking":
         emotion_context = "\nThe user is in a playful mood. Respond with light wit while staying in character."
 
-    # Build context
     history = get_history(5)
     prefs = get_preferences()
 
@@ -495,7 +625,7 @@ async def chat(req: ChatRequest):
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        response = client.chat.completions.create(
+        response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages,
             max_tokens=300
@@ -507,6 +637,7 @@ async def chat(req: ChatRequest):
 
     save_conversation(user_msg, reply)
     return {"action": "none", "reply": reply}
+
 
 @app.get("/history")
 def history():
