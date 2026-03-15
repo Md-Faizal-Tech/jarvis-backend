@@ -122,27 +122,88 @@ def classify_command(text: str):
         if t.startswith(wake):
             t = t[len(wake):].strip()
 
+    # Open apps
     if "open youtube" in t:
         return {"action": "open_url", "url": "https://youtube.com",
                 "reply": "Opening YouTube now, Sir."}
-    if "open google" in t:
-        return {"action": "open_url", "url": "https://google.com",
-                "reply": "Opening Google now, Sir."}
     if "open whatsapp" in t:
-        return {"action": "open_url",
-            "url": "https://www.whatsapp.com",
-            "reply": "Opening WhatsApp, Sir."}
+        return {"action": "open_url", "url": "whatsapp://app",
+                "reply": "Opening WhatsApp, Sir."}
     if "open instagram" in t:
         return {"action": "open_url", "url": "https://www.instagram.com",
                 "reply": "Opening Instagram, Sir."}
     if "open spotify" in t:
-        return {"action": "open_url",
-            "url": "spotify://",
-            "reply": "Opening Spotify, Sir."}
+        return {"action": "open_url", "url": "spotify://home",
+                "reply": "Opening Spotify, Sir."}
+    if "open google" in t:
+        return {"action": "open_url", "url": "https://google.com",
+                "reply": "Opening Google, Sir."}
     if "open maps" in t or "open google maps" in t:
         return {"action": "open_url", "url": "https://maps.google.com",
                 "reply": "Opening Maps, Sir."}
+    if "open camera" in t:
+        return {"action": "open_url", "url": "content://media/external/images/media",
+                "reply": "Opening Camera, Sir."}
+    if "open facebook" in t:
+        return {"action": "open_url", "url": "https://www.facebook.com",
+                "reply": "Opening Facebook, Sir."}
+    if "open twitter" in t or "open x" in t:
+        return {"action": "open_url", "url": "https://www.x.com",
+                "reply": "Opening X, Sir."}
+    if "open telegram" in t:
+        return {"action": "open_url", "url": "https://t.me",
+                "reply": "Opening Telegram, Sir."}
+    if "open gmail" in t:
+        return {"action": "open_url", "url": "https://mail.google.com",
+                "reply": "Opening Gmail, Sir."}
+    if "open chrome" in t:
+        return {"action": "open_url", "url": "https://google.com",
+                "reply": "Opening Chrome, Sir."}
+    if "open settings" in t:
+        return {"action": "open_url", "url": "app-settings:",
+                "reply": "Opening Settings, Sir."}
+    if "open calculator" in t:
+        return {"action": "open_url", 
+                "url": "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_CALCULATOR;end",
+                "reply": "Opening Calculator, Sir."}
+    if "open clock" in t or "open alarm" in t:
+        return {"action": "open_url",
+                "url": "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_CALCULATOR;end",
+                "reply": "Opening Clock, Sir."}
+    if "open files" in t:
+        return {"action": "open_url",
+                "url": "content://com.android.externalstorage.documents/root/primary",
+                "reply": "Opening Files, Sir."}
 
+    # Navigation
+    m = re.search(r"navigate to (.+)|directions to (.+)|take me to (.+)", t)
+    if m:
+        place = (m.group(1) or m.group(2) or m.group(3)).strip()
+        return {"action": "open_url",
+                "url": f"https://www.google.com/maps/dir/?api=1&destination={place.replace(' ', '+')}",
+                "reply": f"Navigating to {place}, Sir."}
+
+    # WhatsApp message with confirmation
+    m = re.search(r"(?:whatsapp|message|send|tell|text)\s+(.+?)\s+(?:to say|saying|that|and say|)\s+(.+)", t)
+    if m and any(w in t for w in ["whatsapp", "message", "send", "tell", "text"]):
+        name = m.group(1).strip()
+        msg = m.group(2).strip()
+        return {
+            "action": "whatsapp_message",
+            "name": name,
+            "message": msg,
+            "url": f"whatsapp://send?text={msg.replace(' ', '%20')}",
+            "reply": f"Sir, shall I send '{msg}' to {name} on WhatsApp? Say confirm to send."
+        }
+
+    # Call
+    m = re.search(r"call (.+)", t)
+    if m:
+        name = m.group(1).strip()
+        return {"action": "open_url", "url": "tel:",
+                "reply": f"Opening dialer to call {name}, Sir."}
+
+    # Web search
     m = re.search(r"search (?:for )?(.+)", t)
     if m:
         query = m.group(1).strip()
@@ -150,14 +211,21 @@ def classify_command(text: str):
                 "url": f"https://google.com/search?q={query.replace(' ', '+')}",
                 "reply": f"Searching for {query}, Sir."}
 
+    # Time
     if "what time" in t or "current time" in t:
-        now = datetime.now().strftime("%I:%M %p")
+        from datetime import timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(ist).strftime("%I:%M %p")
         return {"action": "none", "reply": f"It is {now}, Sir."}
 
+    # Date
     if "what date" in t or "today's date" in t or "what day" in t:
-        today = datetime.now().strftime("%A, %B %d %Y")
+        from datetime import timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
+        today = datetime.now(ist).strftime("%A, %B %d %Y")
         return {"action": "none", "reply": f"Today is {today}, Sir."}
 
+    # Remember
     m = re.search(r"remember (?:that )?(.+)", t)
     if m:
         fact = m.group(1).strip()
@@ -165,24 +233,11 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": f"Noted and remembered, Sir. I will keep in mind that {fact}."}
 
-    m = re.search(r"(?:send|tell|message|whatsapp) (.+?) (?:that |to say )?(.+)", t)
-    if m and ("whatsapp" in t or "message" in t or "tell" in t or "send" in t):
-        name = m.group(1).strip()
-        msg = m.group(2).strip()
-        return {
-            "action": "open_url",
-            "url": f"whatsapp://send?text={msg.replace(' ', '%20')}",
-            "reply": f"Opening WhatsApp to message {name}, Sir. Please select the contact."
-        }
-
-    m = re.search(r"call (.+)", t)
-    if m:
-        name = m.group(1).strip()
-        return {"action": "open_url", "url": "tel:",
-                "reply": f"Opening dialer to call {name}, Sir."}
+    # Confirm whatsapp message
+    if t == "confirm" or t == "yes send it" or t == "send it":
+        return {"action": "confirm_pending", "reply": "Sending now, Sir."}
 
     return None
-
 
 class ChatRequest(BaseModel):
     message: str
