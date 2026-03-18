@@ -393,7 +393,8 @@ Examples:
 "can you send a message to John via email saying project is done" -> {{"is_email": true, "to_name": "john", "content": "project is done"}}
 "what's the weather" -> {{"is_email": false, "to_name": null, "content": null}}
 "open youtube" -> {{"is_email": false, "to_name": null, "content": null}}
-"hello" -> {{"is_email": false, "to_name": null, "content": null}}"""
+"hello" -> {{"is_email": false, "to_name": null, "content": null}}
+"save john number 9876543210" -> {{"is_email": false, "to_name": null, "content": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -407,6 +408,44 @@ Examples:
     except Exception as e:
         print(f"EMAIL INTENT ERROR: {str(e)}")
         return {"is_email": False, "to_name": None, "content": None}
+
+
+async def detect_contact_intent(text: str):
+    try:
+        prompt = f"""Analyze this message and determine if the user wants to save, update, or delete a contact.
+
+Message: "{text}"
+
+Reply with JSON only, no other text, no markdown:
+{{"intent": "save" or "update" or "delete" or "none", "name": "contact name or null", "email": "email or null", "phone": "phone number or null"}}
+
+Examples:
+"save john number 9876543210" -> {{"intent": "save", "name": "john", "email": null, "phone": "9876543210"}}
+"add contact rahul email rahul@gmail.com" -> {{"intent": "save", "name": "rahul", "email": "rahul@gmail.com", "phone": null}}
+"save mom phone 9999999999 and email mom@gmail.com" -> {{"intent": "save", "name": "mom", "email": "mom@gmail.com", "phone": "9999999999"}}
+"add my friend john his number is 8888888888" -> {{"intent": "save", "name": "john", "email": null, "phone": "8888888888"}}
+"store rahul contact 9876543210" -> {{"intent": "save", "name": "rahul", "email": null, "phone": "9876543210"}}
+"update john phone to 9999999999" -> {{"intent": "update", "name": "john", "email": null, "phone": "9999999999"}}
+"change rahul email to new@gmail.com" -> {{"intent": "update", "name": "rahul", "email": "new@gmail.com", "phone": null}}
+"john's number changed to 8888888888" -> {{"intent": "update", "name": "john", "email": null, "phone": "8888888888"}}
+"delete contact rahul" -> {{"intent": "delete", "name": "rahul", "email": null, "phone": null}}
+"remove john from contacts" -> {{"intent": "delete", "name": "john", "email": null, "phone": null}}
+"what's the weather" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"open youtube" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"email john saying hello" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
+
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        data = json.loads(raw)
+        return data
+    except Exception as e:
+        print(f"CONTACT INTENT ERROR: {str(e)}")
+        return {"intent": "none", "name": None, "email": None, "phone": None}
 
 
 def classify_command(text: str):
@@ -479,15 +518,6 @@ def classify_command(text: str):
         return {"action": "open_url",
                 "url": f"https://www.google.com/maps/dir/?api=1&destination={place.replace(' ', '+')}",
                 "reply": f"Navigating to {place}, Sir."}
-
-    # Save contact with email
-    m = re.search(r"save (?:contact )?(.+?) (?:as |email |mail )(.+@.+)", t)
-    if m:
-        name = m.group(1).strip()
-        email = m.group(2).strip()
-        save_contact(name, email=email)
-        return {"action": "none",
-                "reply": f"Contact saved, Sir. {name.capitalize()} is at {email}."}
 
     # Read emails
     if any(w in t for w in ["read my emails", "check my emails", "any emails",
@@ -566,51 +596,7 @@ def classify_command(text: str):
     if "latest news" in t or "today's news" in t or "headlines" in t or "what's happening" in t:
         return {"action": "news", "topic": None, "reply": None}
 
-    # Save contact with phone
-    m = re.search(r"save (?:contact )?(.+?) (?:phone|number|mobile) (.+)", t)
-    if m:
-        name = m.group(1).strip()
-        phone = m.group(2).strip()
-        save_contact(name, phone=phone)
-        return {"action": "none",
-                "reply": f"Phone number saved for {name.capitalize()}, Sir."}
-
-    # Delete contact
-    m = re.search(r"delete (?:contact )?(.+)", t)
-    if m:
-        name = m.group(1).strip()
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
-        conn.commit()
-        conn.close()
-        return {"action": "none",
-                "reply": f"Contact {name.capitalize()} deleted, Sir."}
-
-    # Update contact email
-    m = re.search(r"update (?:contact )?(.+?) email (?:to |as )(.+@.+)", t)
-    if m:
-        name = m.group(1).strip()
-        email = m.group(2).strip()
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
-        conn.commit()
-        conn.close()
-        return {"action": "none",
-                "reply": f"Email updated for {name.capitalize()}, Sir."}
-
-    # Update contact phone
-    m = re.search(r"update (?:contact )?(.+?) (?:phone|number|mobile) (?:to |as )?(.+)", t)
-    if m:
-        name = m.group(1).strip()
-        phone = m.group(2).strip()
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
-        conn.commit()
-        conn.close()
-        return {"action": "none",
-                "reply": f"Phone number updated for {name.capitalize()}, Sir."}
-
-    # List all contacts
+    # List contacts
     if "list contacts" in t or "show contacts" in t or "my contacts" in t:
         conn = sqlite3.connect(DB_PATH)
         rows = conn.execute("SELECT name, email, phone FROM contacts").fetchall()
@@ -683,6 +669,59 @@ async def chat(req: ChatRequest):
 
         save_conversation(user_msg, command["reply"])
         return command
+
+    # Check contact intent using Groq
+    contact_intent = await detect_contact_intent(user_msg)
+    if contact_intent.get("intent") != "none" and contact_intent.get("name"):
+        name = contact_intent["name"].strip()
+        email = contact_intent.get("email")
+        phone = contact_intent.get("phone")
+        intent = contact_intent["intent"]
+
+        if intent == "save":
+            if not email and not phone:
+                reply = f"I need at least an email or phone to save {name.capitalize()}, Sir."
+                save_conversation(user_msg, reply)
+                return {"action": "none", "reply": reply}
+            existing = get_contact(name)
+            final_email = email or (existing[1] if existing else None)
+            final_phone = phone or (existing[2] if existing else None)
+            save_contact(name, email=final_email, phone=final_phone)
+            parts = []
+            if email: parts.append(f"email {email}")
+            if phone: parts.append(f"phone {phone}")
+            reply = f"Contact {name.capitalize()} saved with {' and '.join(parts)}, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        elif intent == "update":
+            existing = get_contact(name)
+            if not existing:
+                reply = f"I don't have a contact named {name.capitalize()}, Sir."
+                save_conversation(user_msg, reply)
+                return {"action": "none", "reply": reply}
+            conn = sqlite3.connect(DB_PATH)
+            if email:
+                conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
+            if phone:
+                conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
+            conn.commit()
+            conn.close()
+            parts = []
+            if email: parts.append(f"email to {email}")
+            if phone: parts.append(f"phone to {phone}")
+            reply = f"Updated {name.capitalize()}'s {' and '.join(parts)}, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        elif intent == "delete":
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
+            conn.commit()
+            conn.close()
+            reply = f"Contact {name.capitalize()} deleted, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
 
     # Check email intent using Groq
     email_intent = await detect_email_intent(user_msg)
