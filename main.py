@@ -10,6 +10,7 @@ import re
 import threading
 import urllib.request
 import httpx
+import json
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -376,6 +377,38 @@ async def send_email_msg(to_name: str, to_email: str, subject: str, body: str):
         return f"Could not send email, Sir. {str(e)}"
 
 
+async def detect_email_intent(text: str):
+    try:
+        prompt = f"""Analyze this message and determine if the user wants to send an email.
+
+Message: "{text}"
+
+Reply with JSON only, no other text, no markdown:
+{{"is_email": true or false, "to_name": "recipient name or null", "content": "email body content or null"}}
+
+Examples:
+"send email to john saying hello" -> {{"is_email": true, "to_name": "john", "content": "hello"}}
+"I want to write a mail to Rahul about the meeting tomorrow" -> {{"is_email": true, "to_name": "rahul", "content": "about the meeting tomorrow"}}
+"email mom that I'll be late" -> {{"is_email": true, "to_name": "mom", "content": "I'll be late"}}
+"can you send a message to John via email saying project is done" -> {{"is_email": true, "to_name": "john", "content": "project is done"}}
+"what's the weather" -> {{"is_email": false, "to_name": null, "content": null}}
+"open youtube" -> {{"is_email": false, "to_name": null, "content": null}}
+"hello" -> {{"is_email": false, "to_name": null, "content": null}}"""
+
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        data = json.loads(raw)
+        return data
+    except Exception as e:
+        print(f"EMAIL INTENT ERROR: {str(e)}")
+        return {"is_email": False, "to_name": None, "content": None}
+
+
 def classify_command(text: str):
     t = text.lower().strip()
 
@@ -447,7 +480,7 @@ def classify_command(text: str):
                 "url": f"https://www.google.com/maps/dir/?api=1&destination={place.replace(' ', '+')}",
                 "reply": f"Navigating to {place}, Sir."}
 
-    # Save contact
+    # Save contact with email
     m = re.search(r"save (?:contact )?(.+?) (?:as |email |mail )(.+@.+)", t)
     if m:
         name = m.group(1).strip()
@@ -455,18 +488,6 @@ def classify_command(text: str):
         save_contact(name, email=email)
         return {"action": "none",
                 "reply": f"Contact saved, Sir. {name.capitalize()} is at {email}."}
-
-    # Send email with confirmation
-    m = re.search(r"send (?:an )?email to (.+?) (?:saying|about|with subject|that) (.+)", t)
-    if m:
-        to_name = m.group(1).strip()
-        content = m.group(2).strip()
-        return {
-            "action": "email_confirm",
-            "to_name": to_name,
-            "content": content,
-            "reply": f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
-        }
 
     # Read emails
     if any(w in t for w in ["read my emails", "check my emails", "any emails",
@@ -660,28 +681,31 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
-        if command["action"] == "email_confirm":
-            to_name = command.get("to_name", "")
-            content = command.get("content", "")
-            contact = get_contact(to_name)
-            if not contact or not contact[1]:
-                reply = f"I don't have an email for {to_name}, Sir. Please say 'save contact {to_name} as their@email.com' first."
-                save_conversation(user_msg, reply)
-                return {"action": "none", "reply": reply}
-            to_email = contact[1]
-            reply = command["reply"]
-            save_conversation(user_msg, reply)
-            return {
-                "action": "email_pending",
-                "to_name": to_name,
-                "to_email": to_email,
-                "content": content,
-                "reply": reply
-            }
-
         save_conversation(user_msg, command["reply"])
         return command
 
+    # Check email intent using Groq
+    email_intent = await detect_email_intent(user_msg)
+    if email_intent.get("is_email") and email_intent.get("to_name"):
+        to_name = email_intent["to_name"].strip()
+        content = email_intent.get("content") or user_msg
+        contact = get_contact(to_name)
+        if not contact or not contact[1]:
+            reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+        to_email = contact[1]
+        reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
+        save_conversation(user_msg, reply)
+        return {
+            "action": "email_pending",
+            "to_name": to_name,
+            "to_email": to_email,
+            "content": content,
+            "reply": reply
+        }
+
+    # Detect emotion
     emotion = detect_emotion(user_msg)
     emotion_context = ""
     if emotion == "stressed":
