@@ -454,7 +454,18 @@ def classify_command(text: str):
     for wake in ["hey jarvis", "jarvis", "hey friday", "friday"]:
         if t.startswith(wake):
             t = t[len(wake):].strip()
+    # Wake word mode control
+    if any(w in t for w in ["wake word on", "enable wake word", "background listen"]):
+        return {"action": "wake_word_on", "reply": "Wake word mode activated, Sir."}
+    if any(w in t for w in ["wake word off", "disable wake word", "stop background"]):
+        return {"action": "wake_word_off", "reply": "Wake word mode deactivated, Sir."}
 
+    # Continuous mode voice control
+    if any(w in t for w in ["continuous on", "always listen", "keep listening"]):
+        return {"action": "continuous_on", "reply": "Continuous mode activated, Sir."}
+    if any(w in t for w in ["continuous off", "stop listening", "manual mode"]):
+        return {"action": "continuous_off", "reply": "Continuous mode deactivated, Sir."}
+    
     if not t:
         return {"action": "none", "reply": get_greeting()}
 
