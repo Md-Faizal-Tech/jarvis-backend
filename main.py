@@ -122,6 +122,25 @@ def init_db():
             phone TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS jarvis_state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    # Default state
+    state_defaults = [
+        ("mode", "normal"),
+        ("locked", "false"),
+        ("stealth", "false"),
+        ("skip_confirm", "false"),
+    ]
+    for key, value in state_defaults:
+        conn.execute(
+            "INSERT OR IGNORE INTO jarvis_state (key, value) VALUES (?, ?)",
+            (key, value)
+        )
+    conn.commit()
     defaults = [
         ("name", "JARVIS"),
         ("alternate_name", "Friday"),
@@ -205,6 +224,23 @@ def get_preferences():
     conn.close()
     return {k: v for k, v in rows}
 
+def get_state(key: str):
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT value FROM jarvis_state WHERE key=?", (key,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_state(key: str, value: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT OR REPLACE INTO jarvis_state (key, value) VALUES (?, ?)",
+        (key, value)
+    )
+    conn.commit()
+    conn.close()
 
 def save_contact(name: str, email: str = None, phone: str = None):
     conn = sqlite3.connect(DB_PATH)
@@ -466,6 +502,83 @@ def classify_command(text: str):
     if any(w in t for w in ["continuous off", "stop listening", "manual mode"]):
         return {"action": "continuous_off", "reply": "Continuous mode deactivated, Sir."}
     
+    # Secret codes
+    # Lock JARVIS
+    if t in ["lockdown", "lock yourself", "jarvis lock", "security lock"]:
+        set_state("locked", "true")
+        return {"action": "none",
+                "reply": "JARVIS locked, Sir. Speak the unlock code to resume."}
+
+    # Unlock JARVIS
+    if t in ["unlock jarvis", "jarvis unlock", "access granted", "override alpha"]:
+        set_state("locked", "false")
+        return {"action": "none",
+                "reply": "JARVIS unlocked, Sir. All systems restored."}
+
+    # Check if locked — block all commands
+    if get_state("locked") == "true":
+        return {"action": "none",
+                "reply": "JARVIS is locked, Sir. Speak the unlock code to continue."}
+
+    # Stealth mode — text only no speech
+    if t in ["stealth mode", "silent mode", "go silent", "no voice"]:
+        set_state("stealth", "true")
+        return {"action": "stealth_on",
+                "reply": "Stealth mode activated, Sir. I will respond in text only."}
+
+    if t in ["stealth off", "voice on", "speak again", "disable stealth"]:
+        set_state("stealth", "false")
+        return {"action": "stealth_off",
+                "reply": "Voice restored, Sir. Back to normal."}
+
+    # Skip confirmations
+    if t in ["override 7749", "skip confirmations", "no confirmations", "fast mode"]:
+        set_state("skip_confirm", "true")
+        return {"action": "none",
+                "reply": "Override active, Sir. All confirmations bypassed until further notice."}
+
+    if t in ["confirmations on", "normal mode", "safe mode", "disable override"]:
+        set_state("skip_confirm", "false")
+        return {"action": "none",
+                "reply": "Confirmations restored, Sir. Safety protocols back online."}
+
+    # Alpha mode — ultra formal
+    if t in ["alpha mode", "professional mode", "formal mode"]:
+        set_state("mode", "alpha")
+        return {"action": "none",
+                "reply": "Alpha mode engaged, Sir. Operating at maximum formality."}
+
+    # Chill mode — casual
+    if t in ["chill mode", "casual mode", "relax mode"]:
+        set_state("mode", "chill")
+        return {"action": "none",
+                "reply": "Switching to casual mode, Sir. Keeping it relaxed."}
+
+    # Normal mode
+    if t in ["normal mode", "default mode", "reset mode"]:
+        set_state("mode", "normal")
+        return {"action": "none",
+                "reply": "Normal mode restored, Sir."}
+
+    # Panic — clear history
+    if t in ["panic mode", "clear history", "wipe memory", "delete history"]:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("DELETE FROM conversations")
+        conn.commit()
+        conn.close()
+        return {"action": "none",
+                "reply": "Conversation history wiped, Sir. Clean slate."}
+
+    # System report
+    if t in ["system status", "status report", "jarvis status"]:
+        mode = get_state("mode")
+        locked = get_state("locked")
+        stealth = get_state("stealth")
+        skip = get_state("skip_confirm")
+        now = datetime.now(IST).strftime("%I:%M %p")
+        return {"action": "none",
+                "reply": f"System status, Sir:\nMode: {mode}\nLocked: {locked}\nStealth: {stealth}\nConfirmations: {'off' if skip == 'true' else 'on'}\nTime: {now}"}
+    
     if not t:
         return {"action": "none", "reply": get_greeting()}
 
@@ -681,6 +794,27 @@ async def chat(req: ChatRequest):
         save_conversation(user_msg, command["reply"])
         return command
 
+    # Check email intent using Groq
+    email_intent = await detect_email_intent(user_msg)
+    if email_intent.get("is_email") and email_intent.get("to_name"):
+        to_name = email_intent["to_name"].strip()
+        content = email_intent.get("content") or user_msg
+        contact = get_contact(to_name)
+        if not contact or not contact[1]:
+            reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+        to_email = contact[1]
+        reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
+        save_conversation(user_msg, reply)
+        return {
+            "action": "email_pending",
+            "to_name": to_name,
+            "to_email": to_email,
+            "content": content,
+            "reply": reply
+        }
+
     # Check contact intent using Groq
     contact_intent = await detect_contact_intent(user_msg)
     if contact_intent.get("intent") != "none" and contact_intent.get("name"):
@@ -734,27 +868,6 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
-    # Check email intent using Groq
-    email_intent = await detect_email_intent(user_msg)
-    if email_intent.get("is_email") and email_intent.get("to_name"):
-        to_name = email_intent["to_name"].strip()
-        content = email_intent.get("content") or user_msg
-        contact = get_contact(to_name)
-        if not contact or not contact[1]:
-            reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-        to_email = contact[1]
-        reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
-        save_conversation(user_msg, reply)
-        return {
-            "action": "email_pending",
-            "to_name": to_name,
-            "to_email": to_email,
-            "content": content,
-            "reply": reply
-        }
-
     # Detect emotion
     emotion = detect_emotion(user_msg)
     emotion_context = ""
@@ -774,7 +887,15 @@ async def chat(req: ChatRequest):
         for k, v in prefs.items():
             pref_context += f"- {v}\n"
 
-    full_prompt = SYSTEM_PROMPT + pref_context + emotion_context
+    # Adjust personality based on mode
+    mode = get_state("mode")
+    mode_context = ""
+    if mode == "alpha":
+        mode_context = "\nYou are in ALPHA MODE. Be extremely formal, precise, and professional. No humor. Maximum efficiency."
+    elif mode == "chill":
+        mode_context = "\nYou are in CHILL MODE. Be casual, friendly, and relaxed. Still call user Sir but be more laid back."
+
+    full_prompt = SYSTEM_PROMPT + pref_context + emotion_context + mode_context
 
     messages = [{"role": "system", "content": full_prompt}]
     messages.extend(history)
@@ -792,6 +913,12 @@ async def chat(req: ChatRequest):
         reply = "Apologies Sir, I seem to be experiencing a momentary difficulty. Please try again."
 
     save_conversation(user_msg, reply)
+    
+    # Check stealth mode
+    stealth = get_state("stealth")
+    if stealth == "true":
+        return {"action": "none", "reply": reply, "stealth": True}
+    
     return {"action": "none", "reply": reply}
 
 
