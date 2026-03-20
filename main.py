@@ -65,6 +65,22 @@ Signature phrases you use naturally:
 
 DB_PATH = "jarvis.db"
 
+SECRET_CODES = [
+    "lockdown", "lock yourself", "jarvis lock", "security lock",
+    "unlock jarvis", "jarvis unlock", "access granted", "override alpha",
+    "stealth mode", "silent mode", "go silent", "no voice",
+    "stealth off", "voice on", "speak again", "disable stealth",
+    "override 7749", "skip confirmations", "no confirmations", "fast mode",
+    "confirmations on", "normal mode", "safe mode", "disable override",
+    "alpha mode", "professional mode", "formal mode",
+    "chill mode", "casual mode", "relax mode",
+    "default mode", "reset mode",
+    "panic mode", "clear history", "wipe memory", "delete history",
+    "system status", "status report", "jarvis status",
+    "wake word on", "wake word off", "enable wake word", "disable wake word",
+    "continuous on", "continuous off", "always listen", "stop listening",
+]
+
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -128,7 +144,6 @@ def init_db():
             value TEXT
         )
     """)
-    # Default state
     state_defaults = [
         ("mode", "normal"),
         ("locked", "false"),
@@ -224,6 +239,7 @@ def get_preferences():
     conn.close()
     return {k: v for k, v in rows}
 
+
 def get_state(key: str):
     conn = sqlite3.connect(DB_PATH)
     row = conn.execute(
@@ -241,6 +257,7 @@ def set_state(key: str, value: str):
     )
     conn.commit()
     conn.close()
+
 
 def save_contact(name: str, email: str = None, phone: str = None):
     conn = sqlite3.connect(DB_PATH)
@@ -264,9 +281,15 @@ def get_contact(name: str):
 
 def check_personality_trigger(text: str):
     t = text.lower().strip()
+
+    # never intercept secret codes
+    if t in SECRET_CODES:
+        return None
+
     for wake in ["hey jarvis", "jarvis", "hey friday", "friday"]:
         if t.startswith(wake):
             t = t[len(wake):].strip()
+
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
         "SELECT trigger, response FROM personality_responses"
@@ -398,11 +421,12 @@ async def send_email_msg(to_name: str, to_email: str, subject: str, body: str):
     try:
         service = get_gmail_service()
         sender = os.getenv("GMAIL_USER")
+        clean_body = str(body).strip().strip('"').strip("'").strip()
         message = MIMEMultipart()
         message["to"] = to_email
         message["from"] = sender
         message["subject"] = subject
-        message.attach(MIMEText(body, "plain"))
+        message.attach(MIMEText(clean_body, "plain"))
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
         service.users().messages().send(
             userId="me", body={"raw": raw}
@@ -430,7 +454,13 @@ Examples:
 "what's the weather" -> {{"is_email": false, "to_name": null, "content": null}}
 "open youtube" -> {{"is_email": false, "to_name": null, "content": null}}
 "hello" -> {{"is_email": false, "to_name": null, "content": null}}
-"save john number 9876543210" -> {{"is_email": false, "to_name": null, "content": null}}"""
+"save john number 9876543210" -> {{"is_email": false, "to_name": null, "content": null}}
+"lockdown" -> {{"is_email": false, "to_name": null, "content": null}}
+"panic mode" -> {{"is_email": false, "to_name": null, "content": null}}
+"stealth mode" -> {{"is_email": false, "to_name": null, "content": null}}
+"alpha mode" -> {{"is_email": false, "to_name": null, "content": null}}
+"system status" -> {{"is_email": false, "to_name": null, "content": null}}
+"override 7749" -> {{"is_email": false, "to_name": null, "content": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -468,7 +498,13 @@ Examples:
 "remove john from contacts" -> {{"intent": "delete", "name": "john", "email": null, "phone": null}}
 "what's the weather" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "open youtube" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"email john saying hello" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
+"email john saying hello" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"lockdown" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"panic mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"stealth mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"alpha mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"system status" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"override 7749" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -493,6 +529,7 @@ def classify_command(text: str):
 
     if not t:
         return {"action": "none", "reply": get_greeting()}
+
     # Wake word mode control
     if any(w in t for w in ["wake word on", "enable wake word", "background listen"]):
         return {"action": "wake_word_on", "reply": "Wake word mode activated, Sir."}
@@ -504,8 +541,7 @@ def classify_command(text: str):
         return {"action": "continuous_on", "reply": "Continuous mode activated, Sir."}
     if any(w in t for w in ["continuous off", "stop listening", "manual mode"]):
         return {"action": "continuous_off", "reply": "Continuous mode deactivated, Sir."}
-    
-    # Secret codes
+
     # Lock JARVIS
     if t in ["lockdown", "lock yourself", "jarvis lock", "security lock"]:
         set_state("locked", "true")
@@ -518,12 +554,12 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": "JARVIS unlocked, Sir. All systems restored."}
 
-    # Check if locked — block all commands
+    # Check if locked
     if get_state("locked") == "true":
         return {"action": "none",
                 "reply": "JARVIS is locked, Sir. Speak the unlock code to continue."}
 
-    # Stealth mode — text only no speech
+    # Stealth mode
     if t in ["stealth mode", "silent mode", "go silent", "no voice"]:
         set_state("stealth", "true")
         return {"action": "stealth_on",
@@ -545,13 +581,13 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": "Confirmations restored, Sir. Safety protocols back online."}
 
-    # Alpha mode — ultra formal
+    # Alpha mode
     if t in ["alpha mode", "professional mode", "formal mode"]:
         set_state("mode", "alpha")
         return {"action": "none",
                 "reply": "Alpha mode engaged, Sir. Operating at maximum formality."}
 
-    # Chill mode — casual
+    # Chill mode
     if t in ["chill mode", "casual mode", "relax mode"]:
         set_state("mode", "chill")
         return {"action": "none",
@@ -563,16 +599,17 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": "Normal mode restored, Sir."}
 
-    # Panic — clear history
+    # Panic — clear ALL memory
     if t in ["panic mode", "clear history", "wipe memory", "delete history"]:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("DELETE FROM conversations")
+        conn.execute("DELETE FROM preferences")
         conn.commit()
         conn.close()
         return {"action": "none",
-                "reply": "Conversation history wiped, Sir. Clean slate."}
+                "reply": "All memory wiped, Sir. Clean slate. I no longer know anything about you."}
 
-    # System report
+    # System status
     if t in ["system status", "status report", "jarvis status"]:
         mode = get_state("mode")
         locked = get_state("locked")
@@ -581,8 +618,6 @@ def classify_command(text: str):
         now = datetime.now(IST).strftime("%I:%M %p")
         return {"action": "none",
                 "reply": f"System status, Sir:\nMode: {mode}\nLocked: {locked}\nStealth: {stealth}\nConfirmations: {'off' if skip == 'true' else 'on'}\nTime: {now}"}
-    
-    
 
     # Open apps
     if "open youtube" in t:
@@ -774,194 +809,4 @@ async def chat(req: ChatRequest):
         save_conversation(user_msg, personality_reply)
         return {"action": "none", "reply": personality_reply}
 
-    command = classify_command(user_msg)
-    if command:
-        if command["action"] == "weather":
-            city = command.get("city", "Chennai")
-            reply = await get_weather(city)
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-
-        if command["action"] == "news":
-            topic = command.get("topic", None)
-            reply = await get_news(topic)
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-
-        if command["action"] == "read_emails":
-            reply = await read_emails()
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-
-        save_conversation(user_msg, command["reply"])
-        return command
-
-    # Check email intent using Groq
-    email_intent = await detect_email_intent(user_msg)
-    if email_intent.get("is_email") and email_intent.get("to_name"):
-        to_name = email_intent["to_name"].strip()
-        content = email_intent.get("content") or user_msg
-        contact = get_contact(to_name)
-        if not contact or not contact[1]:
-            reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-        to_email = contact[1]
-        reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
-        save_conversation(user_msg, reply)
-        return {
-            "action": "email_pending",
-            "to_name": to_name,
-            "to_email": to_email,
-            "content": content,
-            "reply": reply
-        }
-
-    # Check contact intent using Groq
-    contact_intent = await detect_contact_intent(user_msg)
-    if contact_intent.get("intent") != "none" and contact_intent.get("name"):
-        name = contact_intent["name"].strip()
-        email = contact_intent.get("email")
-        phone = contact_intent.get("phone")
-        intent = contact_intent["intent"]
-
-        if intent == "save":
-            if not email and not phone:
-                reply = f"I need at least an email or phone to save {name.capitalize()}, Sir."
-                save_conversation(user_msg, reply)
-                return {"action": "none", "reply": reply}
-            existing = get_contact(name)
-            final_email = email or (existing[1] if existing else None)
-            final_phone = phone or (existing[2] if existing else None)
-            save_contact(name, email=final_email, phone=final_phone)
-            parts = []
-            if email: parts.append(f"email {email}")
-            if phone: parts.append(f"phone {phone}")
-            reply = f"Contact {name.capitalize()} saved with {' and '.join(parts)}, Sir."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-
-        elif intent == "update":
-            existing = get_contact(name)
-            if not existing:
-                reply = f"I don't have a contact named {name.capitalize()}, Sir."
-                save_conversation(user_msg, reply)
-                return {"action": "none", "reply": reply}
-            conn = sqlite3.connect(DB_PATH)
-            if email:
-                conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
-            if phone:
-                conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
-            conn.commit()
-            conn.close()
-            parts = []
-            if email: parts.append(f"email to {email}")
-            if phone: parts.append(f"phone to {phone}")
-            reply = f"Updated {name.capitalize()}'s {' and '.join(parts)}, Sir."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-
-        elif intent == "delete":
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
-            conn.commit()
-            conn.close()
-            reply = f"Contact {name.capitalize()} deleted, Sir."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-
-    # Detect emotion
-    emotion = detect_emotion(user_msg)
-    emotion_context = ""
-    if emotion == "stressed":
-        emotion_context = "\nThe user seems stressed. Be extra calm, reassuring, and supportive."
-    elif emotion == "happy":
-        emotion_context = "\nThe user seems happy or accomplished. Acknowledge it briefly with a congratulation."
-    elif emotion == "joking":
-        emotion_context = "\nThe user is in a playful mood. Respond with light wit while staying in character."
-
-    history = get_history(5)
-    prefs = get_preferences()
-
-    pref_context = ""
-    if prefs:
-        pref_context = "\n\nThings you know and remember about Sir:\n"
-        for k, v in prefs.items():
-            pref_context += f"- {v}\n"
-
-    # Adjust personality based on mode
-    mode = get_state("mode")
-    mode_context = ""
-    if mode == "alpha":
-        mode_context = "\nYou are in ALPHA MODE. Be extremely formal, precise, and professional. No humor. Maximum efficiency."
-    elif mode == "chill":
-        mode_context = "\nYou are in CHILL MODE. Be casual, friendly, and relaxed. Still call user Sir but be more laid back."
-
-    full_prompt = SYSTEM_PROMPT + pref_context + emotion_context + mode_context
-
-    messages = [{"role": "system", "content": full_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_msg})
-
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages,
-            max_tokens=300
-        )
-        reply = response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"GROQ ERROR: {str(e)}")
-        reply = "Apologies Sir, I seem to be experiencing a momentary difficulty. Please try again."
-
-    save_conversation(user_msg, reply)
-    
-    # Check stealth mode
-    stealth = get_state("stealth")
-    if stealth == "true":
-        return {"action": "none", "reply": reply, "stealth": True}
-    
-    return {"action": "none", "reply": reply}
-
-
-@app.get("/history")
-def history():
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT user_msg, jarvis_reply, timestamp FROM conversations ORDER BY id DESC LIMIT 20"
-    ).fetchall()
-    conn.close()
-    return [{"user": r[0], "jarvis": r[1], "time": r[2]} for r in rows]
-
-
-@app.get("/personality")
-def get_personality():
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT key, value FROM assistant_personality").fetchall()
-    conn.close()
-    return {k: v for k, v in rows}
-
-
-@app.get("/triggers")
-def get_triggers():
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT trigger, response FROM personality_responses").fetchall()
-    conn.close()
-    return [{"trigger": r[0], "response": r[1]} for r in rows]
-
-
-def keep_alive():
-    def ping():
-        while True:
-            try:
-                urllib.request.urlopen("https://jarvis-backend-q3ml.onrender.com")
-            except:
-                pass
-            import time
-            time.sleep(840)
-    t = threading.Thread(target=ping, daemon=True)
-    t.start()
-
-
-keep_alive()
-init_db()
+    command = class
