@@ -281,15 +281,11 @@ def get_contact(name: str):
 
 def check_personality_trigger(text: str):
     t = text.lower().strip()
-
-    # never intercept secret codes
     if t in SECRET_CODES:
         return None
-
     for wake in ["hey jarvis", "jarvis", "hey friday", "friday"]:
         if t.startswith(wake):
             t = t[len(wake):].strip()
-
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
         "SELECT trigger, response FROM personality_responses"
@@ -460,7 +456,11 @@ Examples:
 "stealth mode" -> {{"is_email": false, "to_name": null, "content": null}}
 "alpha mode" -> {{"is_email": false, "to_name": null, "content": null}}
 "system status" -> {{"is_email": false, "to_name": null, "content": null}}
-"override 7749" -> {{"is_email": false, "to_name": null, "content": null}}"""
+"override 7749" -> {{"is_email": false, "to_name": null, "content": null}}
+"confirmations on" -> {{"is_email": false, "to_name": null, "content": null}}
+"confirmations off" -> {{"is_email": false, "to_name": null, "content": null}}
+"unlock jarvis" -> {{"is_email": false, "to_name": null, "content": null}}
+"chill mode" -> {{"is_email": false, "to_name": null, "content": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -504,7 +504,10 @@ Examples:
 "stealth mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "alpha mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "system status" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"override 7749" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
+"override 7749" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"confirmations on" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"unlock jarvis" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"chill mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -530,86 +533,63 @@ def classify_command(text: str):
     if not t:
         return {"action": "none", "reply": get_greeting()}
 
-    # Wake word mode control
     if any(w in t for w in ["wake word on", "enable wake word", "background listen"]):
         return {"action": "wake_word_on", "reply": "Wake word mode activated, Sir."}
     if any(w in t for w in ["wake word off", "disable wake word", "stop background"]):
         return {"action": "wake_word_off", "reply": "Wake word mode deactivated, Sir."}
 
-    # Continuous mode voice control
     if any(w in t for w in ["continuous on", "always listen", "keep listening"]):
         return {"action": "continuous_on", "reply": "Continuous mode activated, Sir."}
     if any(w in t for w in ["continuous off", "stop listening", "manual mode"]):
         return {"action": "continuous_off", "reply": "Continuous mode deactivated, Sir."}
 
-    # Lock JARVIS
     if t in ["lockdown", "lock yourself", "jarvis lock", "security lock"]:
         set_state("locked", "true")
-        return {"action": "none",
-                "reply": "JARVIS locked, Sir. Speak the unlock code to resume."}
+        return {"action": "none", "reply": "JARVIS locked, Sir. Speak the unlock code to resume."}
 
-    # Unlock JARVIS
     if t in ["unlock jarvis", "jarvis unlock", "access granted", "override alpha"]:
         set_state("locked", "false")
-        return {"action": "none",
-                "reply": "JARVIS unlocked, Sir. All systems restored."}
+        return {"action": "none", "reply": "JARVIS unlocked, Sir. All systems restored."}
 
-    # Check if locked
     if get_state("locked") == "true":
-        return {"action": "none",
-                "reply": "JARVIS is locked, Sir. Speak the unlock code to continue."}
+        return {"action": "none", "reply": "JARVIS is locked, Sir. Speak the unlock code to continue."}
 
-    # Stealth mode
     if t in ["stealth mode", "silent mode", "go silent", "no voice"]:
         set_state("stealth", "true")
-        return {"action": "stealth_on",
-                "reply": "Stealth mode activated, Sir. I will respond in text only."}
+        return {"action": "stealth_on", "reply": "Stealth mode activated, Sir. I will respond in text only."}
 
     if t in ["stealth off", "voice on", "speak again", "disable stealth"]:
         set_state("stealth", "false")
-        return {"action": "stealth_off",
-                "reply": "Voice restored, Sir. Back to normal."}
+        return {"action": "stealth_off", "reply": "Voice restored, Sir. Back to normal."}
 
-    # Skip confirmations
     if t in ["override 7749", "skip confirmations", "no confirmations", "fast mode"]:
         set_state("skip_confirm", "true")
-        return {"action": "none",
-                "reply": "Override active, Sir. All confirmations bypassed until further notice."}
+        return {"action": "none", "reply": "Override active, Sir. All confirmations bypassed until further notice."}
 
     if t in ["confirmations on", "normal mode", "safe mode", "disable override"]:
         set_state("skip_confirm", "false")
-        return {"action": "none",
-                "reply": "Confirmations restored, Sir. Safety protocols back online."}
+        return {"action": "none", "reply": "Confirmations restored, Sir. Safety protocols back online."}
 
-    # Alpha mode
     if t in ["alpha mode", "professional mode", "formal mode"]:
         set_state("mode", "alpha")
-        return {"action": "none",
-                "reply": "Alpha mode engaged, Sir. Operating at maximum formality."}
+        return {"action": "none", "reply": "Alpha mode engaged, Sir. Operating at maximum formality."}
 
-    # Chill mode
     if t in ["chill mode", "casual mode", "relax mode"]:
         set_state("mode", "chill")
-        return {"action": "none",
-                "reply": "Switching to casual mode, Sir. Keeping it relaxed."}
+        return {"action": "none", "reply": "Switching to casual mode, Sir. Keeping it relaxed."}
 
-    # Normal mode
-    if t in ["normal mode", "default mode", "reset mode"]:
+    if t in ["default mode", "reset mode"]:
         set_state("mode", "normal")
-        return {"action": "none",
-                "reply": "Normal mode restored, Sir."}
+        return {"action": "none", "reply": "Normal mode restored, Sir."}
 
-    # Panic — clear ALL memory
     if t in ["panic mode", "clear history", "wipe memory", "delete history"]:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("DELETE FROM conversations")
         conn.execute("DELETE FROM preferences")
         conn.commit()
         conn.close()
-        return {"action": "none",
-                "reply": "All memory wiped, Sir. Clean slate. I no longer know anything about you."}
+        return {"action": "none", "reply": "All memory wiped, Sir. Clean slate. I no longer know anything about you."}
 
-    # System status
     if t in ["system status", "status report", "jarvis status"]:
         mode = get_state("mode")
         locked = get_state("locked")
@@ -619,60 +599,41 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": f"System status, Sir:\nMode: {mode}\nLocked: {locked}\nStealth: {stealth}\nConfirmations: {'off' if skip == 'true' else 'on'}\nTime: {now}"}
 
-    # Open apps
     if "open youtube" in t:
-        return {"action": "open_url", "url": "https://youtube.com",
-                "reply": "Opening YouTube now, Sir."}
+        return {"action": "open_url", "url": "https://youtube.com", "reply": "Opening YouTube now, Sir."}
     if "open whatsapp" in t:
-        return {"action": "open_app", "package": "com.whatsapp",
-                "reply": "Opening WhatsApp, Sir."}
+        return {"action": "open_app", "package": "com.whatsapp", "reply": "Opening WhatsApp, Sir."}
     if "open instagram" in t:
-        return {"action": "open_url", "url": "https://www.instagram.com",
-                "reply": "Opening Instagram, Sir."}
+        return {"action": "open_url", "url": "https://www.instagram.com", "reply": "Opening Instagram, Sir."}
     if "open spotify" in t:
-        return {"action": "open_url", "url": "spotify://home",
-                "reply": "Opening Spotify, Sir."}
+        return {"action": "open_url", "url": "spotify://home", "reply": "Opening Spotify, Sir."}
     if "open google" in t:
-        return {"action": "open_url", "url": "https://google.com",
-                "reply": "Opening Google, Sir."}
+        return {"action": "open_url", "url": "https://google.com", "reply": "Opening Google, Sir."}
     if "open maps" in t or "open google maps" in t:
-        return {"action": "open_url", "url": "https://maps.google.com",
-                "reply": "Opening Maps, Sir."}
+        return {"action": "open_url", "url": "https://maps.google.com", "reply": "Opening Maps, Sir."}
     if "open camera" in t:
-        return {"action": "open_app", "package": "com.nothing.camera",
-                "reply": "Opening Camera, Sir."}
+        return {"action": "open_app", "package": "com.nothing.camera", "reply": "Opening Camera, Sir."}
     if "open facebook" in t:
-        return {"action": "open_url", "url": "https://www.facebook.com",
-                "reply": "Opening Facebook, Sir."}
+        return {"action": "open_url", "url": "https://www.facebook.com", "reply": "Opening Facebook, Sir."}
     if "open twitter" in t or "open x" in t:
-        return {"action": "open_url", "url": "https://www.x.com",
-                "reply": "Opening X, Sir."}
+        return {"action": "open_url", "url": "https://www.x.com", "reply": "Opening X, Sir."}
     if "open telegram" in t:
-        return {"action": "open_app", "package": "org.telegram.messenger",
-                "reply": "Opening Telegram, Sir."}
+        return {"action": "open_app", "package": "org.telegram.messenger", "reply": "Opening Telegram, Sir."}
     if "open gmail" in t:
-        return {"action": "open_app", "package": "com.google.android.gm",
-                "reply": "Opening Gmail, Sir."}
+        return {"action": "open_app", "package": "com.google.android.gm", "reply": "Opening Gmail, Sir."}
     if "open chrome" in t:
-        return {"action": "open_url", "url": "https://google.com",
-                "reply": "Opening Chrome, Sir."}
+        return {"action": "open_url", "url": "https://google.com", "reply": "Opening Chrome, Sir."}
     if "open settings" in t:
-        return {"action": "open_app", "package": "com.android.settings",
-                "reply": "Opening Settings, Sir."}
+        return {"action": "open_app", "package": "com.android.settings", "reply": "Opening Settings, Sir."}
     if "open calculator" in t:
-        return {"action": "open_app", "package": "com.google.android.calculator",
-                "reply": "Opening Calculator, Sir."}
+        return {"action": "open_app", "package": "com.google.android.calculator", "reply": "Opening Calculator, Sir."}
     if "open clock" in t or "open alarm" in t:
-        return {"action": "open_app", "package": "com.google.android.deskclock",
-                "reply": "Opening Clock, Sir."}
+        return {"action": "open_app", "package": "com.google.android.deskclock", "reply": "Opening Clock, Sir."}
     if "open files" in t:
-        return {"action": "open_app", "package": "com.google.android.documentsui",
-                "reply": "Opening Files, Sir."}
+        return {"action": "open_app", "package": "com.google.android.documentsui", "reply": "Opening Files, Sir."}
     if "open play store" in t:
-        return {"action": "open_app", "package": "com.android.vending",
-                "reply": "Opening Play Store, Sir."}
+        return {"action": "open_app", "package": "com.android.vending", "reply": "Opening Play Store, Sir."}
 
-    # Navigation
     m = re.search(r"navigate to (.+)|directions to (.+)|take me to (.+)", t)
     if m:
         place = (m.group(1) or m.group(2) or m.group(3)).strip()
@@ -680,12 +641,10 @@ def classify_command(text: str):
                 "url": f"https://www.google.com/maps/dir/?api=1&destination={place.replace(' ', '+')}",
                 "reply": f"Navigating to {place}, Sir."}
 
-    # Read emails
     if any(w in t for w in ["read my emails", "check my emails", "any emails",
                               "unread emails", "check emails", "my inbox"]):
         return {"action": "read_emails", "reply": None}
 
-    # WhatsApp message
     m = re.search(r"(?:whatsapp|message|tell|text)\s+(.+?)\s+(?:to say|saying|that|and say|)\s+(.+)", t)
     if m:
         name = m.group(1).strip()
@@ -698,14 +657,11 @@ def classify_command(text: str):
             "reply": f"Sir, shall I send '{msg}' to {name} on WhatsApp? Say confirm to send or cancel to abort."
         }
 
-    # Call
     m = re.search(r"call (.+)", t)
     if m:
         name = m.group(1).strip()
-        return {"action": "open_url", "url": "tel:",
-                "reply": f"Opening dialer to call {name}, Sir."}
+        return {"action": "open_url", "url": "tel:", "reply": f"Opening dialer to call {name}, Sir."}
 
-    # Web search
     m = re.search(r"search (?:for )?(.+)", t)
     if m:
         query = m.group(1).strip()
@@ -713,35 +669,27 @@ def classify_command(text: str):
                 "url": f"https://google.com/search?q={query.replace(' ', '+')}",
                 "reply": f"Searching for {query}, Sir."}
 
-    # Time
     if "what time" in t or "current time" in t:
         now = datetime.now(IST).strftime("%I:%M %p")
         return {"action": "none", "reply": f"It is {now}, Sir."}
 
-    # Date
     if "what date" in t or "today's date" in t or "what day" in t:
         today = datetime.now(IST).strftime("%A, %B %d %Y")
         return {"action": "none", "reply": f"Today is {today}, Sir."}
 
-    # Remember
     m = re.search(r"remember (?:that )?(.+)", t)
     if m:
         fact = m.group(1).strip()
         save_preference(f"fact_{datetime.now().timestamp()}", fact)
-        return {"action": "none",
-                "reply": "Noted and remembered, Sir. I shall keep that in mind."}
+        return {"action": "none", "reply": "Noted and remembered, Sir. I shall keep that in mind."}
 
-    # Confirm words
     if t in ["confirm", "yes", "send it", "yes send it", "do it",
              "proceed", "go ahead", "sure", "ok", "okay", "yes please"]:
         return {"action": "confirm_pending", "reply": "Right away, Sir."}
 
-    # Cancel words
-    if t in ["cancel", "no", "abort", "never mind", "stop", "don't send",
-             "nope", "negative"]:
+    if t in ["cancel", "no", "abort", "never mind", "stop", "don't send", "nope", "negative"]:
         return {"action": "cancel_pending", "reply": "Understood, Sir. Action cancelled."}
 
-    # Weather
     m = re.search(r"weather (?:in |for |at )?(.+)", t)
     if m:
         city = m.group(1).strip()
@@ -749,7 +697,6 @@ def classify_command(text: str):
     if "weather" in t or "temperature" in t or "how hot" in t or "how cold" in t:
         return {"action": "weather", "city": "Chennai", "reply": None}
 
-    # News
     m = re.search(r"news (?:about |on |for )?(.+)", t)
     if m:
         topic = m.group(1).strip()
@@ -757,7 +704,6 @@ def classify_command(text: str):
     if "latest news" in t or "today's news" in t or "headlines" in t or "what's happening" in t:
         return {"action": "news", "topic": None, "reply": None}
 
-    # List contacts
     if "list contacts" in t or "show contacts" in t or "my contacts" in t:
         conn = sqlite3.connect(DB_PATH)
         rows = conn.execute("SELECT name, email, phone FROM contacts").fetchall()
@@ -828,6 +774,16 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
+        # skip whatsapp confirmation if override active
+        if command["action"] == "whatsapp_message" and get_state("skip_confirm") == "true":
+            reply = "Sending WhatsApp message now, Sir."
+            save_conversation(user_msg, reply)
+            return {
+                "action": "whatsapp_send_direct",
+                "url": command["url"],
+                "reply": reply
+            }
+
         save_conversation(user_msg, command["reply"])
         return command
 
@@ -842,6 +798,11 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
         to_email = contact[1]
+        # skip confirmation if override active
+        if get_state("skip_confirm") == "true":
+            reply = await send_email_msg(to_name, to_email, "Message from JARVIS", content)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
         reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
         save_conversation(user_msg, reply)
         return {
