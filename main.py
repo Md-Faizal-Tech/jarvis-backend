@@ -809,4 +809,192 @@ async def chat(req: ChatRequest):
         save_conversation(user_msg, personality_reply)
         return {"action": "none", "reply": personality_reply}
 
-    command = class
+    command = classify_command(user_msg)
+    if command:
+        if command["action"] == "weather":
+            city = command.get("city", "Chennai")
+            reply = await get_weather(city)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        if command["action"] == "news":
+            topic = command.get("topic", None)
+            reply = await get_news(topic)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        if command["action"] == "read_emails":
+            reply = await read_emails()
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        save_conversation(user_msg, command["reply"])
+        return command
+
+    # Check email intent using Groq FIRST
+    email_intent = await detect_email_intent(user_msg)
+    if email_intent.get("is_email") and email_intent.get("to_name"):
+        to_name = email_intent["to_name"].strip()
+        content = str(email_intent.get("content") or user_msg).strip().strip('"').strip("'").strip()
+        contact = get_contact(to_name)
+        if not contact or not contact[1]:
+            reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+        to_email = contact[1]
+        reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
+        save_conversation(user_msg, reply)
+        return {
+            "action": "email_pending",
+            "to_name": to_name,
+            "to_email": to_email,
+            "content": content,
+            "reply": reply
+        }
+
+    # Check contact intent using Groq SECOND
+    contact_intent = await detect_contact_intent(user_msg)
+    if contact_intent.get("intent") != "none" and contact_intent.get("name"):
+        name = contact_intent["name"].strip()
+        email = contact_intent.get("email")
+        phone = contact_intent.get("phone")
+        intent = contact_intent["intent"]
+
+        if intent == "save":
+            if not email and not phone:
+                reply = f"I need at least an email or phone to save {name.capitalize()}, Sir."
+                save_conversation(user_msg, reply)
+                return {"action": "none", "reply": reply}
+            existing = get_contact(name)
+            final_email = email or (existing[1] if existing else None)
+            final_phone = phone or (existing[2] if existing else None)
+            save_contact(name, email=final_email, phone=final_phone)
+            parts = []
+            if email: parts.append(f"email {email}")
+            if phone: parts.append(f"phone {phone}")
+            reply = f"Contact {name.capitalize()} saved with {' and '.join(parts)}, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        elif intent == "update":
+            existing = get_contact(name)
+            if not existing:
+                reply = f"I don't have a contact named {name.capitalize()}, Sir."
+                save_conversation(user_msg, reply)
+                return {"action": "none", "reply": reply}
+            conn = sqlite3.connect(DB_PATH)
+            if email:
+                conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
+            if phone:
+                conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
+            conn.commit()
+            conn.close()
+            parts = []
+            if email: parts.append(f"email to {email}")
+            if phone: parts.append(f"phone to {phone}")
+            reply = f"Updated {name.capitalize()}'s {' and '.join(parts)}, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        elif intent == "delete":
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
+            conn.commit()
+            conn.close()
+            reply = f"Contact {name.capitalize()} deleted, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+    # Detect emotion
+    emotion = detect_emotion(user_msg)
+    emotion_context = ""
+    if emotion == "stressed":
+        emotion_context = "\nThe user seems stressed. Be extra calm, reassuring, and supportive."
+    elif emotion == "happy":
+        emotion_context = "\nThe user seems happy or accomplished. Acknowledge it briefly with a congratulation."
+    elif emotion == "joking":
+        emotion_context = "\nThe user is in a playful mood. Respond with light wit while staying in character."
+
+    history = get_history(5)
+    prefs = get_preferences()
+
+    pref_context = ""
+    if prefs:
+        pref_context = "\n\nThings you know and remember about Sir:\n"
+        for k, v in prefs.items():
+            pref_context += f"- {v}\n"
+
+    mode = get_state("mode")
+    mode_context = ""
+    if mode == "alpha":
+        mode_context = "\nYou are in ALPHA MODE. Be extremely formal, precise, and professional. No humor. Maximum efficiency."
+    elif mode == "chill":
+        mode_context = "\nYou are in CHILL MODE. Be casual, friendly, and relaxed. Still call user Sir but be more laid back."
+
+    full_prompt = SYSTEM_PROMPT + pref_context + emotion_context + mode_context
+
+    messages = [{"role": "system", "content": full_prompt}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_msg})
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            max_tokens=300
+        )
+        reply = response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"GROQ ERROR: {str(e)}")
+        reply = "Apologies Sir, I seem to be experiencing a momentary difficulty. Please try again."
+
+    save_conversation(user_msg, reply)
+
+    stealth = get_state("stealth")
+    if stealth == "true":
+        return {"action": "none", "reply": reply, "stealth": True}
+
+    return {"action": "none", "reply": reply}
+
+
+@app.get("/history")
+def history():
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT user_msg, jarvis_reply, timestamp FROM conversations ORDER BY id DESC LIMIT 20"
+    ).fetchall()
+    conn.close()
+    return [{"user": r[0], "jarvis": r[1], "time": r[2]} for r in rows]
+
+
+@app.get("/personality")
+def get_personality():
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT key, value FROM assistant_personality").fetchall()
+    conn.close()
+    return {k: v for k, v in rows}
+
+
+@app.get("/triggers")
+def get_triggers():
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT trigger, response FROM personality_responses").fetchall()
+    conn.close()
+    return [{"trigger": r[0], "response": r[1]} for r in rows]
+
+
+def keep_alive():
+    def ping():
+        while True:
+            try:
+                urllib.request.urlopen("https://jarvis-backend-q3ml.onrender.com")
+            except:
+                pass
+            import time
+            time.sleep(840)
+    t = threading.Thread(target=ping, daemon=True)
+    t.start()
+
+
+keep_alive()
+init_db()
