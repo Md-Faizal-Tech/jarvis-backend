@@ -490,6 +490,9 @@ def classify_command(text: str):
     for wake in ["hey jarvis", "jarvis", "hey friday", "friday"]:
         if t.startswith(wake):
             t = t[len(wake):].strip()
+
+    if not t:
+        return {"action": "none", "reply": get_greeting()}
     # Wake word mode control
     if any(w in t for w in ["wake word on", "enable wake word", "background listen"]):
         return {"action": "wake_word_on", "reply": "Wake word mode activated, Sir."}
@@ -579,8 +582,7 @@ def classify_command(text: str):
         return {"action": "none",
                 "reply": f"System status, Sir:\nMode: {mode}\nLocked: {locked}\nStealth: {stealth}\nConfirmations: {'off' if skip == 'true' else 'on'}\nTime: {now}"}
     
-    if not t:
-        return {"action": "none", "reply": get_greeting()}
+    
 
     # Open apps
     if "open youtube" in t:
