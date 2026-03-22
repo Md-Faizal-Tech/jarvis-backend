@@ -11,6 +11,7 @@ import threading
 import urllib.request
 import httpx
 import json
+import pytz
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -81,7 +82,6 @@ SECRET_CODES = [
     "continuous on", "continuous off", "always listen", "stop listening",
 ]
 
-# These words appearing as contact names are definitely wrong
 BLOCKED_CONTACT_NAMES = {
     "me", "my", "i", "you", "jarvis", "friday", "sir", "maam",
     "my name", "my number", "my email", "my contact", "my phone",
@@ -92,7 +92,6 @@ BLOCKED_CONTACT_NAMES = {
     "hey", "hello", "hi", "okay", "ok", "yes", "no",
 }
 
-# These keywords in a message mean it's definitely NOT a contact/email command
 NON_CONTACT_KEYWORDS = [
     "what do you know", "do you know", "do you remember",
     "tell me about", "what is my", "who am i", "what am i",
@@ -106,6 +105,61 @@ NON_EMAIL_KEYWORDS = [
     "my profile", "my details", "what you know",
     "do you remember", "system status", "what's happening",
 ]
+
+# common location to timezone mapping for fast lookup
+LOCATION_TIMEZONE_MAP = {
+    "india": "Asia/Kolkata",
+    "chennai": "Asia/Kolkata",
+    "mumbai": "Asia/Kolkata",
+    "delhi": "Asia/Kolkata",
+    "bangalore": "Asia/Kolkata",
+    "kolkata": "Asia/Kolkata",
+    "hyderabad": "Asia/Kolkata",
+    "usa": "America/New_York",
+    "us": "America/New_York",
+    "america": "America/New_York",
+    "new york": "America/New_York",
+    "los angeles": "America/Los_Angeles",
+    "chicago": "America/Chicago",
+    "california": "America/Los_Angeles",
+    "uk": "Europe/London",
+    "london": "Europe/London",
+    "england": "Europe/London",
+    "paris": "Europe/Paris",
+    "france": "Europe/Paris",
+    "germany": "Europe/Berlin",
+    "berlin": "Europe/Berlin",
+    "japan": "Asia/Tokyo",
+    "tokyo": "Asia/Tokyo",
+    "china": "Asia/Shanghai",
+    "beijing": "Asia/Shanghai",
+    "shanghai": "Asia/Shanghai",
+    "australia": "Australia/Sydney",
+    "sydney": "Australia/Sydney",
+    "melbourne": "Australia/Melbourne",
+    "dubai": "Asia/Dubai",
+    "uae": "Asia/Dubai",
+    "singapore": "Asia/Singapore",
+    "malaysia": "Asia/Kuala_Lumpur",
+    "kuala lumpur": "Asia/Kuala_Lumpur",
+    "canada": "America/Toronto",
+    "toronto": "America/Toronto",
+    "pakistan": "Asia/Karachi",
+    "karachi": "Asia/Karachi",
+    "sri lanka": "Asia/Colombo",
+    "colombo": "Asia/Colombo",
+    "nepal": "Asia/Kathmandu",
+    "bangladesh": "Asia/Dhaka",
+    "dhaka": "Asia/Dhaka",
+    "russia": "Europe/Moscow",
+    "moscow": "Europe/Moscow",
+    "brazil": "America/Sao_Paulo",
+    "south africa": "Africa/Johannesburg",
+    "egypt": "Africa/Cairo",
+    "saudi arabia": "Asia/Riyadh",
+    "riyadh": "Asia/Riyadh",
+    "new zealand": "Pacific/Auckland",
+}
 
 
 def is_non_contact_message(text: str) -> bool:
@@ -132,7 +186,6 @@ def is_valid_contact_name(name: str) -> bool:
         return False
     if len(n) <= 1:
         return False
-    # must contain at least one letter
     if not any(c.isalpha() for c in n):
         return False
     return True
@@ -383,6 +436,47 @@ def get_greeting():
         return "Working late, Sir? I am here whenever you need me."
 
 
+async def get_time_for_location(location: str = None):
+    try:
+        if not location:
+            now = datetime.now(pytz.timezone("Asia/Kolkata"))
+            return f"It is {now.strftime('%I:%M %p')} IST, Sir."
+
+        loc_lower = location.lower().strip()
+
+        # check local map first — fast and free
+        if loc_lower in LOCATION_TIMEZONE_MAP:
+            tz = pytz.timezone(LOCATION_TIMEZONE_MAP[loc_lower])
+            now = datetime.now(tz)
+            return f"It is {now.strftime('%I:%M %p')} in {location.capitalize()}, Sir."
+
+        # fallback to Groq for unknown locations
+        prompt = f"""What is the pytz timezone string for "{location}"?
+Reply with ONLY the timezone string, nothing else. No explanation.
+Examples:
+India -> Asia/Kolkata
+New York -> America/New_York
+London -> Europe/London
+Tokyo -> Asia/Tokyo
+Dubai -> Asia/Dubai
+"{location}" ->"""
+
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20
+        )
+        tz_str = response.choices[0].message.content.strip().strip('"').strip("'").strip()
+        tz = pytz.timezone(tz_str)
+        now = datetime.now(tz)
+        return f"It is {now.strftime('%I:%M %p')} in {location.capitalize()}, Sir."
+
+    except Exception as e:
+        print(f"TIME ERROR: {str(e)}")
+        now = datetime.now(pytz.timezone("Asia/Kolkata"))
+        return f"It is {now.strftime('%I:%M %p')} IST, Sir."
+
+
 async def get_weather(city: str = "Chennai"):
     try:
         api_key = os.getenv("OPENWEATHER_API_KEY")
@@ -511,20 +605,14 @@ Examples:
 "what is my name" -> {{"is_email": false, "to_name": null, "content": null}}
 "do you remember me" -> {{"is_email": false, "to_name": null, "content": null}}
 "who am i" -> {{"is_email": false, "to_name": null, "content": null}}
-"tell me about myself" -> {{"is_email": false, "to_name": null, "content": null}}
 "what's the weather" -> {{"is_email": false, "to_name": null, "content": null}}
 "open youtube" -> {{"is_email": false, "to_name": null, "content": null}}
 "hello" -> {{"is_email": false, "to_name": null, "content": null}}
-"save john number 9876543210" -> {{"is_email": false, "to_name": null, "content": null}}
 "lockdown" -> {{"is_email": false, "to_name": null, "content": null}}
 "panic mode" -> {{"is_email": false, "to_name": null, "content": null}}
-"stealth mode" -> {{"is_email": false, "to_name": null, "content": null}}
-"alpha mode" -> {{"is_email": false, "to_name": null, "content": null}}
 "system status" -> {{"is_email": false, "to_name": null, "content": null}}
-"override 7749" -> {{"is_email": false, "to_name": null, "content": null}}
-"confirmations on" -> {{"is_email": false, "to_name": null, "content": null}}
-"unlock jarvis" -> {{"is_email": false, "to_name": null, "content": null}}
-"chill mode" -> {{"is_email": false, "to_name": null, "content": null}}
+"what time is it" -> {{"is_email": false, "to_name": null, "content": null}}
+"time in usa" -> {{"is_email": false, "to_name": null, "content": null}}
 "remember my name is faizal" -> {{"is_email": false, "to_name": null, "content": null}}
 "list contacts" -> {{"is_email": false, "to_name": null, "content": null}}"""
 
@@ -568,20 +656,11 @@ Examples:
 "remove john from contacts" -> {{"intent": "delete", "name": "john", "email": null, "phone": null}}
 "what do you know about me" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "what is my name" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"do you remember me" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"who am i" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"tell me about myself" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"remember my name is faizal" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"what's the weather" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"open youtube" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"email john saying hello" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"what time is it" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"time in usa" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "lockdown" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "panic mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"stealth mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "system status" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"override 7749" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"confirmations on" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"unlock jarvis" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "list contacts" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "hello jarvis" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
 
@@ -664,7 +743,7 @@ def classify_command(text: str):
         conn.execute("DELETE FROM preferences")
         conn.commit()
         conn.close()
-        return {"action": "none", "reply": "All memory wiped, Sir. Clean slate. I no longer know anything about you."}
+        return {"action": "none", "reply": "All memory wiped, Sir. Clean slate."}
 
     if t in ["system status", "status report", "jarvis status"]:
         mode = get_state("mode")
@@ -745,10 +824,27 @@ def classify_command(text: str):
                 "url": f"https://google.com/search?q={query.replace(' ', '+')}",
                 "reply": f"Searching for {query}, Sir."}
 
-    if "what time" in t or "current time" in t:
-        now = datetime.now(IST).strftime("%I:%M %p")
-        return {"action": "none", "reply": f"It is {now}, Sir."}
+    # Time — local IST
+    if any(w in t for w in ["what time", "current time", "time now", "what's the time",
+                             "tell me the time", "time is it"]):
+        return {"action": "get_time", "location": None, "reply": None}
 
+    # Time in specific location
+    m = re.search(r"(?:what(?:'s| is)(?: the)? )?time (?:in|at|of|for) (.+?)(?:\?|$)", t)
+    if m:
+        location = m.group(1).strip()
+        return {"action": "get_time", "location": location, "reply": None}
+
+    m = re.search(r"(?:what(?:'s| is)(?: the)? )?(.+?) time(?:\?|$)", t)
+    if m:
+        location = m.group(1).strip()
+        skip_words = ["current", "local", "exact", "correct", "real", "right",
+                      "the", "a", "any", "some"]
+        if location not in skip_words and len(location) > 2:
+            return {"action": "get_time", "location": location, "reply": None}
+        return {"action": "get_time", "location": None, "reply": None}
+
+    # Date
     if "what date" in t or "today's date" in t or "what day" in t:
         today = datetime.now(IST).strftime("%A, %B %d %Y")
         return {"action": "none", "reply": f"Today is {today}, Sir."}
@@ -850,6 +946,12 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
+        if command["action"] == "get_time":
+            location = command.get("location")
+            reply = await get_time_for_location(location)
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
         if command["action"] == "whatsapp_message" and get_state("skip_confirm") == "true":
             reply = "Sending WhatsApp message now, Sir."
             save_conversation(user_msg, reply)
@@ -862,15 +964,14 @@ async def chat(req: ChatRequest):
         save_conversation(user_msg, command["reply"])
         return command
 
-    # Gate 1 — skip Groq intents if message is clearly a question/memory request
+    # Gate — skip Groq intents for questions/memory requests
     skip_groq_intents = is_non_email_message(user_msg) or is_non_contact_message(user_msg)
 
     if not skip_groq_intents:
-        # Check email intent using Groq FIRST
+        # Email intent check FIRST
         email_intent = await detect_email_intent(user_msg)
         if email_intent.get("is_email") and email_intent.get("to_name"):
             to_name = email_intent["to_name"].strip()
-            # validate recipient name
             if is_valid_contact_name(to_name):
                 content = str(email_intent.get("content") or user_msg).strip().strip('"').strip("'").strip()
                 contact = get_contact(to_name)
@@ -893,11 +994,10 @@ async def chat(req: ChatRequest):
                     "reply": reply
                 }
 
-        # Check contact intent using Groq SECOND
+        # Contact intent check SECOND
         contact_intent = await detect_contact_intent(user_msg)
         if contact_intent.get("intent") != "none" and contact_intent.get("name"):
             name = contact_intent["name"].strip()
-            # validate contact name before doing anything
             if is_valid_contact_name(name):
                 email = contact_intent.get("email")
                 phone = contact_intent.get("phone")
