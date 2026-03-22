@@ -81,6 +81,62 @@ SECRET_CODES = [
     "continuous on", "continuous off", "always listen", "stop listening",
 ]
 
+# These words appearing as contact names are definitely wrong
+BLOCKED_CONTACT_NAMES = {
+    "me", "my", "i", "you", "jarvis", "friday", "sir", "maam",
+    "my name", "my number", "my email", "my contact", "my phone",
+    "what", "who", "how", "when", "where", "why", "which",
+    "everything", "anything", "something", "nothing", "someone",
+    "tell", "know", "about", "remember", "forget", "recall",
+    "do you", "can you", "will you", "please", "jarvis please",
+    "hey", "hello", "hi", "okay", "ok", "yes", "no",
+}
+
+# These keywords in a message mean it's definitely NOT a contact/email command
+NON_CONTACT_KEYWORDS = [
+    "what do you know", "do you know", "do you remember",
+    "tell me about", "what is my", "who am i", "what am i",
+    "my profile", "my details", "about me", "know about me",
+    "remember about", "what have you", "what you know",
+]
+
+NON_EMAIL_KEYWORDS = [
+    "what do you know", "do you know", "tell me about",
+    "what is my", "who am i", "about me", "remember",
+    "my profile", "my details", "what you know",
+    "do you remember", "system status", "what's happening",
+]
+
+
+def is_non_contact_message(text: str) -> bool:
+    t = text.lower().strip()
+    for kw in NON_CONTACT_KEYWORDS:
+        if kw in t:
+            return True
+    return False
+
+
+def is_non_email_message(text: str) -> bool:
+    t = text.lower().strip()
+    for kw in NON_EMAIL_KEYWORDS:
+        if kw in t:
+            return True
+    return False
+
+
+def is_valid_contact_name(name: str) -> bool:
+    if not name:
+        return False
+    n = name.lower().strip()
+    if n in BLOCKED_CONTACT_NAMES:
+        return False
+    if len(n) <= 1:
+        return False
+    # must contain at least one letter
+    if not any(c.isalpha() for c in n):
+        return False
+    return True
+
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -442,11 +498,20 @@ Message: "{text}"
 Reply with JSON only, no other text, no markdown:
 {{"is_email": true or false, "to_name": "recipient name or null", "content": "email body content or null"}}
 
+Rules:
+- is_email is true ONLY if the user clearly wants to SEND an email to a specific person
+- The message must contain both a recipient name AND content to send
+- Questions, greetings, status checks, memory questions are NEVER emails
+
 Examples:
 "send email to john saying hello" -> {{"is_email": true, "to_name": "john", "content": "hello"}}
-"I want to write a mail to Rahul about the meeting tomorrow" -> {{"is_email": true, "to_name": "rahul", "content": "about the meeting tomorrow"}}
-"email mom that I'll be late" -> {{"is_email": true, "to_name": "mom", "content": "I'll be late"}}
-"can you send a message to John via email saying project is done" -> {{"is_email": true, "to_name": "john", "content": "project is done"}}
+"email rahul about the meeting tomorrow" -> {{"is_email": true, "to_name": "rahul", "content": "about the meeting tomorrow"}}
+"write to mom that I'll be late" -> {{"is_email": true, "to_name": "mom", "content": "I'll be late"}}
+"what do you know about me" -> {{"is_email": false, "to_name": null, "content": null}}
+"what is my name" -> {{"is_email": false, "to_name": null, "content": null}}
+"do you remember me" -> {{"is_email": false, "to_name": null, "content": null}}
+"who am i" -> {{"is_email": false, "to_name": null, "content": null}}
+"tell me about myself" -> {{"is_email": false, "to_name": null, "content": null}}
 "what's the weather" -> {{"is_email": false, "to_name": null, "content": null}}
 "open youtube" -> {{"is_email": false, "to_name": null, "content": null}}
 "hello" -> {{"is_email": false, "to_name": null, "content": null}}
@@ -458,9 +523,10 @@ Examples:
 "system status" -> {{"is_email": false, "to_name": null, "content": null}}
 "override 7749" -> {{"is_email": false, "to_name": null, "content": null}}
 "confirmations on" -> {{"is_email": false, "to_name": null, "content": null}}
-"confirmations off" -> {{"is_email": false, "to_name": null, "content": null}}
 "unlock jarvis" -> {{"is_email": false, "to_name": null, "content": null}}
-"chill mode" -> {{"is_email": false, "to_name": null, "content": null}}"""
+"chill mode" -> {{"is_email": false, "to_name": null, "content": null}}
+"remember my name is faizal" -> {{"is_email": false, "to_name": null, "content": null}}
+"list contacts" -> {{"is_email": false, "to_name": null, "content": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -485,29 +551,39 @@ Message: "{text}"
 Reply with JSON only, no other text, no markdown:
 {{"intent": "save" or "update" or "delete" or "none", "name": "contact name or null", "email": "email or null", "phone": "phone number or null"}}
 
+Rules:
+- intent is "save" ONLY if user explicitly wants to add/save a new contact with a real person's name
+- intent is "update" ONLY if user wants to change existing contact details
+- intent is "delete" ONLY if user wants to remove a contact
+- Questions about memory, self, preferences, or anything else = "none"
+- "me", "my", "i", "you", "jarvis" are NEVER valid contact names
+
 Examples:
 "save john number 9876543210" -> {{"intent": "save", "name": "john", "email": null, "phone": "9876543210"}}
 "add contact rahul email rahul@gmail.com" -> {{"intent": "save", "name": "rahul", "email": "rahul@gmail.com", "phone": null}}
-"save mom phone 9999999999 and email mom@gmail.com" -> {{"intent": "save", "name": "mom", "email": "mom@gmail.com", "phone": "9999999999"}}
-"add my friend john his number is 8888888888" -> {{"intent": "save", "name": "john", "email": null, "phone": "8888888888"}}
-"store rahul contact 9876543210" -> {{"intent": "save", "name": "rahul", "email": null, "phone": "9876543210"}}
+"save mom phone 9999999999" -> {{"intent": "save", "name": "mom", "email": null, "phone": "9999999999"}}
 "update john phone to 9999999999" -> {{"intent": "update", "name": "john", "email": null, "phone": "9999999999"}}
 "change rahul email to new@gmail.com" -> {{"intent": "update", "name": "rahul", "email": "new@gmail.com", "phone": null}}
-"john's number changed to 8888888888" -> {{"intent": "update", "name": "john", "email": null, "phone": "8888888888"}}
 "delete contact rahul" -> {{"intent": "delete", "name": "rahul", "email": null, "phone": null}}
 "remove john from contacts" -> {{"intent": "delete", "name": "john", "email": null, "phone": null}}
+"what do you know about me" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"what is my name" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"do you remember me" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"who am i" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"tell me about myself" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"remember my name is faizal" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "what's the weather" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "open youtube" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "email john saying hello" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "lockdown" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "panic mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "stealth mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"alpha mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "system status" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "override 7749" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "confirmations on" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "unlock jarvis" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"chill mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
+"list contacts" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"hello jarvis" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -774,7 +850,6 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
-        # skip whatsapp confirmation if override active
         if command["action"] == "whatsapp_message" and get_state("skip_confirm") == "true":
             reply = "Sending WhatsApp message now, Sir."
             save_conversation(user_msg, reply)
@@ -787,86 +862,93 @@ async def chat(req: ChatRequest):
         save_conversation(user_msg, command["reply"])
         return command
 
-    # Check email intent using Groq FIRST
-    email_intent = await detect_email_intent(user_msg)
-    if email_intent.get("is_email") and email_intent.get("to_name"):
-        to_name = email_intent["to_name"].strip()
-        content = str(email_intent.get("content") or user_msg).strip().strip('"').strip("'").strip()
-        contact = get_contact(to_name)
-        if not contact or not contact[1]:
-            reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-        to_email = contact[1]
-        # skip confirmation if override active
-        if get_state("skip_confirm") == "true":
-            reply = await send_email_msg(to_name, to_email, "Message from JARVIS", content)
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
-        reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
-        save_conversation(user_msg, reply)
-        return {
-            "action": "email_pending",
-            "to_name": to_name,
-            "to_email": to_email,
-            "content": content,
-            "reply": reply
-        }
+    # Gate 1 — skip Groq intents if message is clearly a question/memory request
+    skip_groq_intents = is_non_email_message(user_msg) or is_non_contact_message(user_msg)
 
-    # Check contact intent using Groq SECOND
-    contact_intent = await detect_contact_intent(user_msg)
-    if contact_intent.get("intent") != "none" and contact_intent.get("name"):
-        name = contact_intent["name"].strip()
-        email = contact_intent.get("email")
-        phone = contact_intent.get("phone")
-        intent = contact_intent["intent"]
-
-        if intent == "save":
-            if not email and not phone:
-                reply = f"I need at least an email or phone to save {name.capitalize()}, Sir."
+    if not skip_groq_intents:
+        # Check email intent using Groq FIRST
+        email_intent = await detect_email_intent(user_msg)
+        if email_intent.get("is_email") and email_intent.get("to_name"):
+            to_name = email_intent["to_name"].strip()
+            # validate recipient name
+            if is_valid_contact_name(to_name):
+                content = str(email_intent.get("content") or user_msg).strip().strip('"').strip("'").strip()
+                contact = get_contact(to_name)
+                if not contact or not contact[1]:
+                    reply = f"I don't have an email saved for {to_name}, Sir. Say 'add contact {to_name}' to save their email first."
+                    save_conversation(user_msg, reply)
+                    return {"action": "none", "reply": reply}
+                to_email = contact[1]
+                if get_state("skip_confirm") == "true":
+                    reply = await send_email_msg(to_name, to_email, "Message from JARVIS", content)
+                    save_conversation(user_msg, reply)
+                    return {"action": "none", "reply": reply}
+                reply = f"Sir, I will send the following email to {to_name}:\n\n\"{content}\"\n\nSay confirm or proceed to send, or cancel to abort."
                 save_conversation(user_msg, reply)
-                return {"action": "none", "reply": reply}
-            existing = get_contact(name)
-            final_email = email or (existing[1] if existing else None)
-            final_phone = phone or (existing[2] if existing else None)
-            save_contact(name, email=final_email, phone=final_phone)
-            parts = []
-            if email: parts.append(f"email {email}")
-            if phone: parts.append(f"phone {phone}")
-            reply = f"Contact {name.capitalize()} saved with {' and '.join(parts)}, Sir."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
+                return {
+                    "action": "email_pending",
+                    "to_name": to_name,
+                    "to_email": to_email,
+                    "content": content,
+                    "reply": reply
+                }
 
-        elif intent == "update":
-            existing = get_contact(name)
-            if not existing:
-                reply = f"I don't have a contact named {name.capitalize()}, Sir."
-                save_conversation(user_msg, reply)
-                return {"action": "none", "reply": reply}
-            conn = sqlite3.connect(DB_PATH)
-            if email:
-                conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
-            if phone:
-                conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
-            conn.commit()
-            conn.close()
-            parts = []
-            if email: parts.append(f"email to {email}")
-            if phone: parts.append(f"phone to {phone}")
-            reply = f"Updated {name.capitalize()}'s {' and '.join(parts)}, Sir."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
+        # Check contact intent using Groq SECOND
+        contact_intent = await detect_contact_intent(user_msg)
+        if contact_intent.get("intent") != "none" and contact_intent.get("name"):
+            name = contact_intent["name"].strip()
+            # validate contact name before doing anything
+            if is_valid_contact_name(name):
+                email = contact_intent.get("email")
+                phone = contact_intent.get("phone")
+                intent = contact_intent["intent"]
 
-        elif intent == "delete":
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
-            conn.commit()
-            conn.close()
-            reply = f"Contact {name.capitalize()} deleted, Sir."
-            save_conversation(user_msg, reply)
-            return {"action": "none", "reply": reply}
+                if intent == "save":
+                    if not email and not phone:
+                        reply = f"I need at least an email or phone to save {name.capitalize()}, Sir."
+                        save_conversation(user_msg, reply)
+                        return {"action": "none", "reply": reply}
+                    existing = get_contact(name)
+                    final_email = email or (existing[1] if existing else None)
+                    final_phone = phone or (existing[2] if existing else None)
+                    save_contact(name, email=final_email, phone=final_phone)
+                    parts = []
+                    if email: parts.append(f"email {email}")
+                    if phone: parts.append(f"phone {phone}")
+                    reply = f"Contact {name.capitalize()} saved with {' and '.join(parts)}, Sir."
+                    save_conversation(user_msg, reply)
+                    return {"action": "none", "reply": reply}
 
-    # Detect emotion
+                elif intent == "update":
+                    existing = get_contact(name)
+                    if not existing:
+                        reply = f"I don't have a contact named {name.capitalize()}, Sir."
+                        save_conversation(user_msg, reply)
+                        return {"action": "none", "reply": reply}
+                    conn = sqlite3.connect(DB_PATH)
+                    if email:
+                        conn.execute("UPDATE contacts SET email=? WHERE name=?", (email, name.lower()))
+                    if phone:
+                        conn.execute("UPDATE contacts SET phone=? WHERE name=?", (phone, name.lower()))
+                    conn.commit()
+                    conn.close()
+                    parts = []
+                    if email: parts.append(f"email to {email}")
+                    if phone: parts.append(f"phone to {phone}")
+                    reply = f"Updated {name.capitalize()}'s {' and '.join(parts)}, Sir."
+                    save_conversation(user_msg, reply)
+                    return {"action": "none", "reply": reply}
+
+                elif intent == "delete":
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("DELETE FROM contacts WHERE name=?", (name.lower(),))
+                    conn.commit()
+                    conn.close()
+                    reply = f"Contact {name.capitalize()} deleted, Sir."
+                    save_conversation(user_msg, reply)
+                    return {"action": "none", "reply": reply}
+
+    # Fall through to Groq AI
     emotion = detect_emotion(user_msg)
     emotion_context = ""
     if emotion == "stressed":
