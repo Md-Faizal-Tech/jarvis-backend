@@ -106,58 +106,32 @@ NON_EMAIL_KEYWORDS = [
     "do you remember", "system status", "what's happening",
 ]
 
-# common location to timezone mapping for fast lookup
 LOCATION_TIMEZONE_MAP = {
-    "india": "Asia/Kolkata",
-    "chennai": "Asia/Kolkata",
-    "mumbai": "Asia/Kolkata",
-    "delhi": "Asia/Kolkata",
-    "bangalore": "Asia/Kolkata",
-    "kolkata": "Asia/Kolkata",
-    "hyderabad": "Asia/Kolkata",
-    "usa": "America/New_York",
-    "us": "America/New_York",
-    "america": "America/New_York",
-    "new york": "America/New_York",
-    "los angeles": "America/Los_Angeles",
-    "chicago": "America/Chicago",
-    "california": "America/Los_Angeles",
-    "uk": "Europe/London",
-    "london": "Europe/London",
-    "england": "Europe/London",
-    "paris": "Europe/Paris",
-    "france": "Europe/Paris",
-    "germany": "Europe/Berlin",
-    "berlin": "Europe/Berlin",
-    "japan": "Asia/Tokyo",
-    "tokyo": "Asia/Tokyo",
-    "china": "Asia/Shanghai",
-    "beijing": "Asia/Shanghai",
-    "shanghai": "Asia/Shanghai",
-    "australia": "Australia/Sydney",
-    "sydney": "Australia/Sydney",
-    "melbourne": "Australia/Melbourne",
-    "dubai": "Asia/Dubai",
-    "uae": "Asia/Dubai",
-    "singapore": "Asia/Singapore",
-    "malaysia": "Asia/Kuala_Lumpur",
-    "kuala lumpur": "Asia/Kuala_Lumpur",
-    "canada": "America/Toronto",
-    "toronto": "America/Toronto",
-    "pakistan": "Asia/Karachi",
-    "karachi": "Asia/Karachi",
-    "sri lanka": "Asia/Colombo",
-    "colombo": "Asia/Colombo",
-    "nepal": "Asia/Kathmandu",
-    "bangladesh": "Asia/Dhaka",
-    "dhaka": "Asia/Dhaka",
-    "russia": "Europe/Moscow",
-    "moscow": "Europe/Moscow",
-    "brazil": "America/Sao_Paulo",
-    "south africa": "Africa/Johannesburg",
-    "egypt": "Africa/Cairo",
-    "saudi arabia": "Asia/Riyadh",
-    "riyadh": "Asia/Riyadh",
+    "india": "Asia/Kolkata", "chennai": "Asia/Kolkata",
+    "mumbai": "Asia/Kolkata", "delhi": "Asia/Kolkata",
+    "bangalore": "Asia/Kolkata", "kolkata": "Asia/Kolkata",
+    "hyderabad": "Asia/Kolkata", "usa": "America/New_York",
+    "us": "America/New_York", "america": "America/New_York",
+    "new york": "America/New_York", "los angeles": "America/Los_Angeles",
+    "chicago": "America/Chicago", "california": "America/Los_Angeles",
+    "uk": "Europe/London", "london": "Europe/London",
+    "england": "Europe/London", "paris": "Europe/Paris",
+    "france": "Europe/Paris", "germany": "Europe/Berlin",
+    "berlin": "Europe/Berlin", "japan": "Asia/Tokyo",
+    "tokyo": "Asia/Tokyo", "china": "Asia/Shanghai",
+    "beijing": "Asia/Shanghai", "shanghai": "Asia/Shanghai",
+    "australia": "Australia/Sydney", "sydney": "Australia/Sydney",
+    "melbourne": "Australia/Melbourne", "dubai": "Asia/Dubai",
+    "uae": "Asia/Dubai", "singapore": "Asia/Singapore",
+    "malaysia": "Asia/Kuala_Lumpur", "kuala lumpur": "Asia/Kuala_Lumpur",
+    "canada": "America/Toronto", "toronto": "America/Toronto",
+    "pakistan": "Asia/Karachi", "karachi": "Asia/Karachi",
+    "sri lanka": "Asia/Colombo", "colombo": "Asia/Colombo",
+    "nepal": "Asia/Kathmandu", "bangladesh": "Asia/Dhaka",
+    "dhaka": "Asia/Dhaka", "russia": "Europe/Moscow",
+    "moscow": "Europe/Moscow", "brazil": "America/Sao_Paulo",
+    "south africa": "Africa/Johannesburg", "egypt": "Africa/Cairo",
+    "saudi arabia": "Asia/Riyadh", "riyadh": "Asia/Riyadh",
     "new zealand": "Pacific/Auckland",
 }
 
@@ -266,13 +240,9 @@ def init_db():
         )
     conn.commit()
     defaults = [
-        ("name", "JARVIS"),
-        ("alternate_name", "Friday"),
-        ("tone", "formal"),
-        ("humor", "light"),
-        ("address_user", "Sir"),
-        ("loyalty", "high"),
-        ("language", "en"),
+        ("name", "JARVIS"), ("alternate_name", "Friday"),
+        ("tone", "formal"), ("humor", "light"),
+        ("address_user", "Sir"), ("loyalty", "high"), ("language", "en"),
     ]
     for key, value in defaults:
         conn.execute(
@@ -441,26 +411,14 @@ async def get_time_for_location(location: str = None):
         if not location:
             now = datetime.now(pytz.timezone("Asia/Kolkata"))
             return f"It is {now.strftime('%I:%M %p')} IST, Sir."
-
         loc_lower = location.lower().strip()
-
-        # check local map first — fast and free
         if loc_lower in LOCATION_TIMEZONE_MAP:
             tz = pytz.timezone(LOCATION_TIMEZONE_MAP[loc_lower])
             now = datetime.now(tz)
             return f"It is {now.strftime('%I:%M %p')} in {location.capitalize()}, Sir."
-
-        # fallback to Groq for unknown locations
         prompt = f"""What is the pytz timezone string for "{location}"?
-Reply with ONLY the timezone string, nothing else. No explanation.
-Examples:
-India -> Asia/Kolkata
-New York -> America/New_York
-London -> Europe/London
-Tokyo -> Asia/Tokyo
-Dubai -> Asia/Dubai
+Reply with ONLY the timezone string, nothing else.
 "{location}" ->"""
-
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
@@ -470,7 +428,6 @@ Dubai -> Asia/Dubai
         tz = pytz.timezone(tz_str)
         now = datetime.now(tz)
         return f"It is {now.strftime('%I:%M %p')} in {location.capitalize()}, Sir."
-
     except Exception as e:
         print(f"TIME ERROR: {str(e)}")
         now = datetime.now(pytz.timezone("Asia/Kolkata"))
@@ -595,25 +552,17 @@ Reply with JSON only, no other text, no markdown:
 Rules:
 - is_email is true ONLY if the user clearly wants to SEND an email to a specific person
 - The message must contain both a recipient name AND content to send
-- Questions, greetings, status checks, memory questions are NEVER emails
+- Questions, greetings, status checks, memory questions, reminders are NEVER emails
 
 Examples:
 "send email to john saying hello" -> {{"is_email": true, "to_name": "john", "content": "hello"}}
 "email rahul about the meeting tomorrow" -> {{"is_email": true, "to_name": "rahul", "content": "about the meeting tomorrow"}}
-"write to mom that I'll be late" -> {{"is_email": true, "to_name": "mom", "content": "I'll be late"}}
 "what do you know about me" -> {{"is_email": false, "to_name": null, "content": null}}
-"what is my name" -> {{"is_email": false, "to_name": null, "content": null}}
-"do you remember me" -> {{"is_email": false, "to_name": null, "content": null}}
-"who am i" -> {{"is_email": false, "to_name": null, "content": null}}
-"what's the weather" -> {{"is_email": false, "to_name": null, "content": null}}
-"open youtube" -> {{"is_email": false, "to_name": null, "content": null}}
-"hello" -> {{"is_email": false, "to_name": null, "content": null}}
-"lockdown" -> {{"is_email": false, "to_name": null, "content": null}}
-"panic mode" -> {{"is_email": false, "to_name": null, "content": null}}
-"system status" -> {{"is_email": false, "to_name": null, "content": null}}
 "what time is it" -> {{"is_email": false, "to_name": null, "content": null}}
-"time in usa" -> {{"is_email": false, "to_name": null, "content": null}}
-"remember my name is faizal" -> {{"is_email": false, "to_name": null, "content": null}}
+"remind me to drink water at 6pm" -> {{"is_email": false, "to_name": null, "content": null}}
+"show my reminders" -> {{"is_email": false, "to_name": null, "content": null}}
+"lockdown" -> {{"is_email": false, "to_name": null, "content": null}}
+"system status" -> {{"is_email": false, "to_name": null, "content": null}}
 "list contacts" -> {{"is_email": false, "to_name": null, "content": null}}"""
 
         response = groq_client.chat.completions.create(
@@ -643,26 +592,20 @@ Rules:
 - intent is "save" ONLY if user explicitly wants to add/save a new contact with a real person's name
 - intent is "update" ONLY if user wants to change existing contact details
 - intent is "delete" ONLY if user wants to remove a contact
-- Questions about memory, self, preferences, or anything else = "none"
+- Questions, reminders, memory requests = "none"
 - "me", "my", "i", "you", "jarvis" are NEVER valid contact names
 
 Examples:
 "save john number 9876543210" -> {{"intent": "save", "name": "john", "email": null, "phone": "9876543210"}}
 "add contact rahul email rahul@gmail.com" -> {{"intent": "save", "name": "rahul", "email": "rahul@gmail.com", "phone": null}}
-"save mom phone 9999999999" -> {{"intent": "save", "name": "mom", "email": null, "phone": "9999999999"}}
 "update john phone to 9999999999" -> {{"intent": "update", "name": "john", "email": null, "phone": "9999999999"}}
-"change rahul email to new@gmail.com" -> {{"intent": "update", "name": "rahul", "email": "new@gmail.com", "phone": null}}
 "delete contact rahul" -> {{"intent": "delete", "name": "rahul", "email": null, "phone": null}}
-"remove john from contacts" -> {{"intent": "delete", "name": "john", "email": null, "phone": null}}
 "what do you know about me" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"what is my name" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"remind me to call john at 6pm" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "what time is it" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"time in usa" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
 "lockdown" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"panic mode" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"system status" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"list contacts" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
-"hello jarvis" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
+"show my reminders" -> {{"intent": "none", "name": null, "email": null, "phone": null}}
+"list contacts" -> {{"intent": "none", "name": null, "email": null, "phone": null}}"""
 
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -688,15 +631,10 @@ def classify_command(text: str):
     if not t:
         return {"action": "none", "reply": get_greeting()}
 
-    if any(w in t for w in ["wake word on", "enable wake word", "background listen"]):
+    if any(w in t for w in ["wake word on", "enable wake word"]):
         return {"action": "wake_word_on", "reply": "Wake word mode activated, Sir."}
-    if any(w in t for w in ["wake word off", "disable wake word", "stop background"]):
+    if any(w in t for w in ["wake word off", "disable wake word"]):
         return {"action": "wake_word_off", "reply": "Wake word mode deactivated, Sir."}
-
-    if any(w in t for w in ["continuous on", "always listen", "keep listening"]):
-        return {"action": "continuous_on", "reply": "Continuous mode activated, Sir."}
-    if any(w in t for w in ["continuous off", "stop listening", "manual mode"]):
-        return {"action": "continuous_off", "reply": "Continuous mode deactivated, Sir."}
 
     if t in ["lockdown", "lock yourself", "jarvis lock", "security lock"]:
         set_state("locked", "true")
@@ -719,7 +657,7 @@ def classify_command(text: str):
 
     if t in ["override 7749", "skip confirmations", "no confirmations", "fast mode"]:
         set_state("skip_confirm", "true")
-        return {"action": "none", "reply": "Override active, Sir. All confirmations bypassed until further notice."}
+        return {"action": "none", "reply": "Override active, Sir. All confirmations bypassed."}
 
     if t in ["confirmations on", "normal mode", "safe mode", "disable override"]:
         set_state("skip_confirm", "false")
@@ -727,11 +665,11 @@ def classify_command(text: str):
 
     if t in ["alpha mode", "professional mode", "formal mode"]:
         set_state("mode", "alpha")
-        return {"action": "none", "reply": "Alpha mode engaged, Sir. Operating at maximum formality."}
+        return {"action": "none", "reply": "Alpha mode engaged, Sir."}
 
     if t in ["chill mode", "casual mode", "relax mode"]:
         set_state("mode", "chill")
-        return {"action": "none", "reply": "Switching to casual mode, Sir. Keeping it relaxed."}
+        return {"action": "none", "reply": "Switching to casual mode, Sir."}
 
     if t in ["default mode", "reset mode"]:
         set_state("mode", "normal")
@@ -824,12 +762,10 @@ def classify_command(text: str):
                 "url": f"https://google.com/search?q={query.replace(' ', '+')}",
                 "reply": f"Searching for {query}, Sir."}
 
-    # Time — local IST
-    if any(w in t for w in ["what time", "current time", "time now", "what's the time",
-                             "tell me the time", "time is it"]):
+    if any(w in t for w in ["what time", "current time", "time now",
+                             "what's the time", "tell me the time", "time is it"]):
         return {"action": "get_time", "location": None, "reply": None}
 
-    # Time in specific location
     m = re.search(r"(?:what(?:'s| is)(?: the)? )?time (?:in|at|of|for) (.+?)(?:\?|$)", t)
     if m:
         location = m.group(1).strip()
@@ -838,13 +774,12 @@ def classify_command(text: str):
     m = re.search(r"(?:what(?:'s| is)(?: the)? )?(.+?) time(?:\?|$)", t)
     if m:
         location = m.group(1).strip()
-        skip_words = ["current", "local", "exact", "correct", "real", "right",
-                      "the", "a", "any", "some"]
+        skip_words = ["current", "local", "exact", "correct", "real",
+                      "right", "the", "a", "any", "some"]
         if location not in skip_words and len(location) > 2:
             return {"action": "get_time", "location": location, "reply": None}
         return {"action": "get_time", "location": None, "reply": None}
 
-    # Date
     if "what date" in t or "today's date" in t or "what day" in t:
         today = datetime.now(IST).strftime("%A, %B %d %Y")
         return {"action": "none", "reply": f"Today is {today}, Sir."}
@@ -859,7 +794,8 @@ def classify_command(text: str):
              "proceed", "go ahead", "sure", "ok", "okay", "yes please"]:
         return {"action": "confirm_pending", "reply": "Right away, Sir."}
 
-    if t in ["cancel", "no", "abort", "never mind", "stop", "don't send", "nope", "negative"]:
+    if t in ["cancel", "no", "abort", "never mind", "stop",
+             "don't send", "nope", "negative"]:
         return {"action": "cancel_pending", "reply": "Understood, Sir. Action cancelled."}
 
     m = re.search(r"weather (?:in |for |at )?(.+)", t)
@@ -875,6 +811,23 @@ def classify_command(text: str):
         return {"action": "news", "topic": topic, "reply": None}
     if "latest news" in t or "today's news" in t or "headlines" in t or "what's happening" in t:
         return {"action": "news", "topic": None, "reply": None}
+
+    # Reminders
+    m = re.search(r"remind me (?:to |about )?(.+?) (?:at|in) (.+)", t)
+    if m:
+        task = m.group(1).strip()
+        time_str = m.group(2).strip()
+        return {"action": "set_reminder", "task": task, "time": time_str, "reply": None}
+
+    if any(w in t for w in ["show reminders", "my reminders",
+                             "list reminders", "what are my reminders",
+                             "pending reminders"]):
+        return {"action": "list_reminders", "reply": None}
+
+    m = re.search(r"cancel reminder (?:for |about )?(.+)", t)
+    if m:
+        task = m.group(1).strip()
+        return {"action": "cancel_reminder", "task": task, "reply": None}
 
     if "list contacts" in t or "show contacts" in t or "my contacts" in t:
         conn = sqlite3.connect(DB_PATH)
@@ -952,6 +905,47 @@ async def chat(req: ChatRequest):
             save_conversation(user_msg, reply)
             return {"action": "none", "reply": reply}
 
+        if command["action"] == "set_reminder":
+            task = command.get("task", "")
+            time_str = command.get("time", "")
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                "INSERT INTO reminders (task, scheduled_time, status) VALUES (?, ?, ?)",
+                (task, time_str, "pending")
+            )
+            conn.commit()
+            conn.close()
+            reply = f"Reminder set, Sir. I will remind you to {task} at {time_str}."
+            save_conversation(user_msg, reply)
+            return {"action": "set_reminder", "task": task, "time": time_str, "reply": reply}
+
+        if command["action"] == "list_reminders":
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                "SELECT task, scheduled_time FROM reminders WHERE status='pending'"
+            ).fetchall()
+            conn.close()
+            if not rows:
+                reply = "No pending reminders, Sir."
+            else:
+                reminder_list = "\n".join([f"- {r[0]} at {r[1]}" for r in rows])
+                reply = f"Your pending reminders, Sir:\n{reminder_list}"
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
+        if command["action"] == "cancel_reminder":
+            task = command.get("task", "")
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                "UPDATE reminders SET status='cancelled' WHERE task LIKE ? AND status='pending'",
+                (f"%{task}%",)
+            )
+            conn.commit()
+            conn.close()
+            reply = "Reminder cancelled, Sir."
+            save_conversation(user_msg, reply)
+            return {"action": "none", "reply": reply}
+
         if command["action"] == "whatsapp_message" and get_state("skip_confirm") == "true":
             reply = "Sending WhatsApp message now, Sir."
             save_conversation(user_msg, reply)
@@ -964,11 +958,9 @@ async def chat(req: ChatRequest):
         save_conversation(user_msg, command["reply"])
         return command
 
-    # Gate — skip Groq intents for questions/memory requests
     skip_groq_intents = is_non_email_message(user_msg) or is_non_contact_message(user_msg)
 
     if not skip_groq_intents:
-        # Email intent check FIRST
         email_intent = await detect_email_intent(user_msg)
         if email_intent.get("is_email") and email_intent.get("to_name"):
             to_name = email_intent["to_name"].strip()
@@ -994,7 +986,6 @@ async def chat(req: ChatRequest):
                     "reply": reply
                 }
 
-        # Contact intent check SECOND
         contact_intent = await detect_contact_intent(user_msg)
         if contact_intent.get("intent") != "none" and contact_intent.get("name"):
             name = contact_intent["name"].strip()
@@ -1048,7 +1039,6 @@ async def chat(req: ChatRequest):
                     save_conversation(user_msg, reply)
                     return {"action": "none", "reply": reply}
 
-    # Fall through to Groq AI
     emotion = detect_emotion(user_msg)
     emotion_context = ""
     if emotion == "stressed":
